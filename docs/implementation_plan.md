@@ -1,76 +1,58 @@
-# Implementation Plan: Automated SSL Certificate Renewal System
+# Implementation Plan: Automated SSL Certificate Renewal & Deployment System
 
-- **Version**: 1.0
-- **Status**: In Progress
-- **Author**: Gemini CLI
-- **Date**: 2026-02-10
+This document outlines a phased implementation plan for building the Automated SSL Certificate Renewal & Deployment System from scratch, based on the requirements defined in `prd.md`.
 
 ---
 
-## 1. Overview
+## Phase 1: Core Renewal Engine & Configuration
 
-This document outlines the implementation plan and status for the "Automated SSL Certificate Renewal & Deployment System" as defined in the `prd.md`. The project is being developed in Python and leverages external tools like `acme.sh` for ACME challenges.
+**Objective**: To build the foundational components of the system that can issue a certificate for a single, hardcoded domain. This phase focuses on getting the core ACME logic and configuration handling in place.
 
-The implementation is broken down by the epics defined in the PRD.
+| Task ID | Task Description                                                                   | Key File(s) / Component(s)                                          | Acceptance Criteria                                                                                                         |
+| :------ | :--------------------------------------------------------------------------------- | :------------------------------------------------------------------ | :-------------------------------------------------------------------------------------------------------------------------- |
+| **1.1**   | **Project Scaffolding & Initial Setup**                                            | `cert_automation/`, `tests/`, `.gitignore`, `requirements.txt`      | - Git repository is initialized. <br>- Project structure is created. <br>- Python dependencies are defined.                     |
+| **1.2**   | **Implement Centralized Logging**                                                  | `logger.py`                                                         | - `setup_logging()` function configures logging to both console and a file. <br>- Log level is configurable via an environment variable. |
+| **1.3**   | **Implement Configuration Management**                                             | `config_loader.py`, `config/*.yaml.example`, `.env.example`         | - `load_yaml_config()` can parse `domains.yaml` and `servers.yaml`. <br>- Secrets are loaded from a `.env` file.        |
+| **1.4**   | **Implement Certificate Expiry Logic**                                             | `cert_manager.py`, `tests/test_cert_manager.py`                     | - `is_certificate_due_for_renewal()` correctly determines if a certificate needs renewal based on a given threshold. <br>- Unit tests pass. |
+| **1.5**   | **Create `acme.sh` Wrapper**                                                       | `acme_client_wrapper.py`, `tests/test_acme_client_wrapper.py`       | - A Python wrapper can successfully execute `acme.sh` commands. <br>- It handles success, failure, and `FileNotFoundError`. <br>- Unit tests with mocking pass. |
+| **1.6**   | **Integrate Core Logic in `main.py`**                                              | `main.py`                                                           | - `main.py` can orchestrate the above components to issue a certificate for a single hardcoded domain.                    |
+
+---
+
+## Phase 2: Secure Deployment & Service Reload
+
+**Objective**: To extend the system to securely deploy the issued certificates to target servers and gracefully reload Nginx.
+
+| Task ID | Task Description                                                                   | Key File(s) / Component(s)                                          | Acceptance Criteria                                                                                                         |
+| :------ | :--------------------------------------------------------------------------------- | :------------------------------------------------------------------ | :-------------------------------------------------------------------------------------------------------------------------- |
+| **2.1**   | **Implement Remote Deployer Module**                                               | `remote_deployer.py`, `tests/test_remote_deployer.py`               | - `RemoteDeployer` class can connect to a remote server via SSH using key-based auth. <br>- It can upload files (SCP) and execute remote commands. <br>- Unit tests with `paramiko` mocking pass. |
+| **2.2**   | **Implement Nginx Validation & Reload**                                            | `remote_deployer.py`                                                | - `validate_nginx_config()` remotely executes `nginx -t` and correctly parses the result. <br>- `reload_nginx()` executes the configured reload command. |
+| **2.3**   | **Implement Post-Deployment Health Checks**                                        | `health_checker.py`                                                 | - `check_https_status()` verifies the domain is reachable over HTTPS. <br>- `verify_cert_expiry()` confirms the new certificate is being served. |
+| **2.4**   | **Integrate Deployment into `main.py`**                                            | `main.py`                                                           | - `main.py` now iterates through configured domains and servers. <br>- It calls `deploy_certificate` for each target. |
+| **2.5**   | **Implement Rollback Mechanism**                                                   | `deploy_certificate` function in `main.py`                          | - If deployment fails, the system attempts to restore the previous certificate and reload Nginx to prevent downtime.       |
 
 ---
 
-## 2. Implementation Status
+## Phase 3: Operational Readiness & Resilience
 
-### Epic 1: Core Renewal Engine
+**Objective**: To make the system robust, portable, and ready for production use.
 
-> As an Operator, I want the system to handle the entire Let's Encrypt renewal process automatically.
-
--   **Status**: ✅ **Completed**
--   **Milestone**: M1 (Core Engine Proof of Concept)
-
-| User Story | ID      | Implementation Details                                                                                                                                                                                             |
-| :--------- | :------ | :----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Check Expiry | **S-101** | ✅ Implemented in `cert_automation/cert_manager.py`. Uses `pyOpenSSL` to parse certificate expiry dates.                                                                                                            |
-| Create/Delete TXT Record | **S-102**, **S-105** | ✅ `acme.sh` with the `dns_ionos` plugin handles this automatically. The Python wrapper passes the `IONOS_TOKEN` environment variable. A standalone `IonosDnsClient` was also built for potential custom DNS work. |
-| Wait for Propagation | **S-103** | ✅ `acme.sh` has built-in DNS propagation checks. A standalone `dns_utils.py` was also created using `dnspython` for custom checks if needed.                                                                |
-| Complete Challenge | **S-104** | ✅ Implemented in `cert_automation/acme_client_wrapper.py`. This module wraps `acme.sh` commands to issue certificates and store them in a specified location.                                            |
-
-### Epic 2: Configuration-Driven Management
-
-> As an Operator, I want to manage all servers, domains, and credentials through external configuration files.
-
--   **Status**: ✅ **Completed**
--   **Milestone**: M2 (Configuration-Driven Logic)
-
-| User Story | ID      | Implementation Details                                                                                                                                                                                          |
-| :--------- | :------ | :-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Define Servers | **S-201** | ✅ Created `config/servers.yaml.example`. The system is ready to use this data for deployment tasks (in Epic 3).                                                                                             |
-| Map Domains to Servers | **S-202** | ✅ Created `config/domains.yaml.example`. The `main.py` orchestrator now loads this file and iterates through all configured domains.                                                                |
-| Secrets via Env Vars | **S-203** | ✅ Implemented using `python-dotenv`. An `.env.example` file is provided. All secrets (IONOS API key, etc.) are loaded from the environment.                                                            |
-| DNS Provider Settings | **S-204** | 🚧 **Partially Complete**. The PRD mentioned an `ionos.yaml` for this, but `acme.sh` and the current implementation use environment variables (`IONOS_TOKEN`). This can be added if more complex IONOS settings are needed. |
-
-### Epic 3: Secure Deployment & Service Reload
-
-> As an Operator, I want the renewed certificates to be securely deployed and Nginx to be reloaded gracefully.
-
--   **Status**: ❌ **Pending**
--   **Milestone**: M3
-
-| User Story | ID      | Implementation Plan                                                                                                                                                                       |
-| :--------- | :------ | :---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| SCP Deployment | **S-301** | To be implemented using a Python SSH library like `paramiko` or `fabric`. The script will connect to the servers defined in `servers.yaml` and copy the certificate files.           |
-| Nginx Validation | **S-302** | The SSH module will execute `nginx -t` on the remote server and check the command's output before proceeding with a reload.                                                          |
-| Nginx Reload | **S-303** | The SSH module will execute the `nginx_reload_command` specified for each server in `servers.yaml`.                                                                                   |
-| Health Check | **S-304** | After reload, an HTTPS request will be made to the domain to check the status code and verify the new certificate's details (e.g., expiry date).                                       |
-
-### Epic 4: Operational Readiness & Portability
-
-> As an Operator, I want to run the automation from anywhere and have clear logs and operational controls.
-
--   **Status**: ❌ **Pending**
--   **Milestone**: M4
-
-| User Story | ID      | Implementation Plan                                                                                                                                                      |
-| :--------- | :------ | :----------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Docker Container | **S-401** | A `Dockerfile` will be created to package the Python scripts, `acme.sh`, and all dependencies. It will be configured to run `main.py` when the container starts.    |
-| Cron Job | **S-402** | A `cron.example` file will be created with an example command to run the script (either directly or via the Docker container) on a schedule.                              |
-| Detailed Logging | **S-403** | Basic logging is in place. This will be enhanced to include more detailed context and potentially structured logging (e.g., JSON format) for easier parsing.         |
-| Dry-Run Mode | **S-404** | A `--dry-run` command-line argument will be added to `main.py`. This will cause the script to log actions that would be taken without actually executing them.         |
+| Task ID | Task Description                                                                   | Key File(s) / Component(s)                                          | Acceptance Criteria                                                                                                         |
+| :------ | :--------------------------------------------------------------------------------- | :------------------------------------------------------------------ | :-------------------------------------------------------------------------------------------------------------------------- |
+| **3.1**   | **Implement Dry-Run Mode**                                                         | `main.py`, `acme_client_wrapper.py`, `remote_deployer.py`           | - A `--dry-run` flag simulates the entire process without making any actual changes. <br>- Includes mocking for `acme.sh` if it's not installed. |
+| **3.2**   | **Implement Retry Logic (Self-Healing)**                                           | `retry_decorator.py`, applied to relevant modules                   | - A retry decorator is created to handle transient failures. <br>- It is applied to network-facing functions (API calls, SSH commands). |
+| **3.3**   | **Implement Comprehensive Reporting**                                              | `report_generator.py`, `tests/test_report_generator.py`             | - A detailed Markdown report is generated after each run, summarizing successes and failures. <br>- Unit tests pass. |
+| **3.4**   | **Create Dockerfile**                                                              | `Dockerfile`                                                        | - A `Dockerfile` is created that packages the application and all its dependencies (`acme.sh`, Python libraries).        |
+| **3.5**   | **Create GitLab CI/CD Pipeline**                                                   | `.gitlab-ci.yml`                                                    | - The pipeline automatically builds the Docker image and runs tests. <br>- A scheduled job is configured to run the certificate renewal process. |
 
 ---
+
+## Phase 4: Documentation & Finalization
+
+**Objective**: To ensure the project is well-documented and easy for others to use and contribute to.
+
+| Task ID | Task Description                                                                   | Key File(s) / Component(s)                                          | Acceptance Criteria                                                                                                         |
+| :------ | :--------------------------------------------------------------------------------- | :------------------------------------------------------------------ | :-------------------------------------------------------------------------------------------------------------------------- |
+| **4.1**   | **Write User & Project Documentation**                                             | `README.md`, `docs/project_documentation.md`                        | - `README.md` provides a clear overview and quick start guide. <br>- `project_documentation.md` offers comprehensive details for all audiences. |
+| **4.2**   | **Write Technical & Testing Documentation**                                        | `docs/technical_deep_dive.md`, `docs/testing_strategy.md`           | - Technical deep dive explains the architecture and code. <br>- Testing strategy explains how to run and add tests.         |
+| **4.3**   | **Final Code Review & Cleanup**                                                    | Entire codebase                                                     | - Code is reviewed for quality, clarity, and adherence to conventions. <br>- `.gitignore` is finalized. <br>- All project files are committed. |

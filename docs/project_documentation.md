@@ -1,85 +1,125 @@
 # Project Documentation: Automated SSL Certificate Renewal System
 
-- **Version**: 1.0
-- **Status**: In Progress
-- **Author**: Gemini CLI
-- **Date**: 2026-02-10
+---
+
+## 1. Overview (For Non-Technical & Executive Audiences)
+
+### 1.1. The Problem
+
+In today's digital landscape, SSL certificates are crucial for securing web traffic and maintaining user trust. However, these certificates have a limited lifespan and must be renewed periodically. Managing this process manually across multiple servers is:
+-   **Time-Consuming**: Operators must track expiry dates and perform manual renewal and installation procedures.
+-   **Error-Prone**: A missed renewal can lead to expired certificates, browser warnings, and a loss of user trust.
+-   **A Security Risk**: An expired certificate can cause service downtime and create a negative perception of the organization's security posture.
+
+### 1.2. Our Solution
+
+This project provides a fully automated, "set-it-and-forget-it" system that handles the entire lifecycle of SSL certificates. Once configured, it operates without manual intervention to ensure that all web services remain secure and trusted.
+
+### 1.3. Business Value
+
+-   **Increased Security & Reliability**: Eliminates the risk of downtime caused by expired SSL certificates.
+-   **Operational Efficiency**: Frees up valuable engineering and operational time by automating a repetitive, manual task.
+-   **Reduced Risk**: Minimizes human error, ensuring a consistent and reliable security posture across all web-facing applications.
+-   **Scalability**: Easily manages certificates for dozens or hundreds of domains and servers through simple configuration file changes.
 
 ---
 
-## 1. Project Overview
+## 2. Operator's Guide (For System Administrators & DevOps)
 
-This system provides a "set-it-and-forget-it" utility for automatically renewing Let's Encrypt SSL certificates and deploying them to multiple Ubuntu servers running Nginx. It is designed to be configuration-driven, secure, and flexible, capable of running locally, via a cron job, or within a Docker container.
+This section explains how to configure, run, and monitor the system.
 
-The core renewal process uses the DNS-01 challenge with the IONOS DNS API.
+### 2.1. How It Works
+
+The system runs as a script that performs the following high-level steps:
+1.  **Loads Configuration**: Reads your infrastructure setup from YAML files (`domains.yaml`, `servers.yaml`) and your secrets from environment variables (`.env` file).
+2.  **Checks Expiry**: For each domain, it checks if the existing SSL certificate is nearing its expiration date.
+3.  **Issues/Renews Certificate**: If renewal is needed, it automatically communicates with Let's Encrypt using the DNS-01 challenge method via the IONOS DNS API.
+4.  **Deploys Certificate**: Securely copies the new certificate to all target servers specified for that domain.
+5.  **Reloads Web Server**: Validates the web server's configuration with the new certificate and gracefully reloads it to activate the certificate without downtime.
+6.  **Verifies & Reports**: Performs a health check to ensure the new certificate is active and then generates a detailed Markdown report summarizing the outcome of the entire run.
+
+### 2.2. Getting Started
+
+A detailed step-by-step guide is available in the main **[README.md](README.md)** file, which covers:
+-   Prerequisites (Python, `acme.sh`).
+-   How to install Python dependencies.
+-   How to configure your `.env`, `domains.yaml`, and `servers.yaml` files.
+-   How to execute the script for both live and dry runs.
+
+### 2.3. Interpreting the Output
+
+After each run, the system provides two key outputs:
+-   **Log File (`renewal.log`)**: Contains detailed, timestamped logs of every action performed by the script. This is the primary source for in-depth troubleshooting.
+-   **Markdown Report (`renewal_report.md`)**: A high-level summary of the run, designed for quick "at a glance" status checks. It clearly shows the overall status (SUCCESS, FAILURE), a summary of domains processed, and detailed information about any failures, including specific error messages.
+
+### 2.4. Troubleshooting Common Issues
+
+| Issue                                               | Likely Cause & Solution                                                                                                                                              |
+| :-------------------------------------------------- | :------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **"acme.sh is not installed or not in PATH"**       | The `acme.sh` dependency is missing from the system. Follow the official guide to install it. For dry runs, this error is simulated and can be ignored.                  |
+| **"Missing critical environment variables"**        | The `.env` file is missing or does not contain required variables like `IONOS_API_KEY` or `ACME_EMAIL`. Ensure the `.env` file is correctly configured.                   |
+| **"SSH connection to ... failed"**                  | - The SSH key is incorrect or not authorized on the target server. <br>- A firewall is blocking the connection. <br>- The host IP address or user is incorrect in `servers.yaml`. |
+| **"Nginx configuration validation failed"**         | A syntax error exists in your Nginx configuration files on the remote server. SSH into the server and run `sudo nginx -t` to debug the issue.                           |
+| **"Health check failed after Nginx reload"**        | The new certificate was not correctly applied by Nginx, or the web service failed to restart properly. Check the Nginx service status and logs on the remote server.      |
 
 ---
 
-## 2. Architecture
+## 3. Developer's Guide (For Engineers & Contributors)
 
-The system is composed of several Python modules orchestrated by a main script, all located in the `cert_automation/` directory.
+This section provides a technical overview for those looking to understand, maintain, or extend the project.
 
-```
-cert_automation/
-├── config/
-│   ├── domains.yaml.example
-│   └── servers.yaml.example
-├── .env.example
-├── main.py                    # Main orchestrator script
-├── config_loader.py           # Loads YAML configuration files
-├── cert_manager.py            # Checks certificate expiry dates
-├── ionos_dns_client.py        # Standalone client for IONOS DNS API
-├── dns_utils.py               # Utilities for checking DNS propagation
-└── acme_client_wrapper.py     # Wrapper for the acme.sh command-line tool
-```
+### 3.1. System Architecture & Technical Deep Dive
 
--   **`main.py`**: The entry point of the application. It loads configurations and iterates through domains to perform renewal checks and trigger issuance.
--   **`config/`**: Contains the YAML files that define the infrastructure (servers and domains).
--   **`.env` file**: (Created from `.env.example`) stores all secrets and sensitive configuration.
--   **`acme.sh`**: An external shell script (which must be installed on the system) that is called by the Python wrapper to handle all ACME protocol interactions, including the DNS-01 challenge.
+For a complete technical breakdown of the system architecture, a deep dive into each Python module, and detailed explanations of the DNS-01 challenge, deployment process, and error handling, please refer to the **[Technical Deep Dive](technical_deep_dive.md)** document.
+
+### 3.2. CI/CD & DevOps
+
+The project is designed for integration with GitLab CI/CD. The `.gitlab-ci.yml` file defines a pipeline that:
+1.  **Builds** a Docker image containing all dependencies from the `Dockerfile`.
+2.  **Tests** the application by running the `pytest` suite.
+3.  **Renews** certificates on a schedule or via manual trigger, using CI/CD variables for secrets management and saving the log and report files as job artifacts.
+
+### 3.3. Testing Strategy
+
+The project has a comprehensive suite of unit tests. To understand the testing philosophy and learn how to run the test suite or add new tests, please refer to the **[Testing Strategy](testing_strategy.md)** document.
+
+### 3.4. How to Contribute
+
+1.  **Clone the Repository**: `git clone ...`
+2.  **Create a Feature Branch**: `git checkout -b my-new-feature`
+3.  **Install Dependencies**: `cd cert_automation && pip3 install -r requirements.txt`
+4.  **Make Changes**: Implement your new feature or bug fix.
+5.  **Write/Update Tests**: Add new unit tests for your feature in the `tests/` directory.
+6.  **Run Tests**: Ensure all tests pass by running `pytest` from the project root.
+7.  **Commit and Push**: `git commit ... && git push origin my-new-feature`
+8.  **Create a Pull Request**: Open a pull request against the `dev` branch for review.
 
 ---
 
-## 3. Configuration
+## 4. Appendix: Configuration Reference
 
-### 3.1. Environment Variables
+### 4.1. Environment Variables (`.env`)
 
-Create a `.env` file in the `cert_automation/` directory based on `.env.example`. This file will store all secrets.
+| Variable                 | Description                                                                                             | Default Value            |
+| :----------------------- | :------------------------------------------------------------------------------------------------------ | :----------------------- |
+| `IONOS_API_KEY`          | **Required.** Your API key for the IONOS account.                                                       | -                        |
+| `ACME_EMAIL`             | **Required.** The email address to register with Let's Encrypt for expiry notifications.                  | -                        |
+| `RENEWAL_THRESHOLD_DAYS` | *Optional.* Number of days before expiry to trigger a renewal.                                          | `30`                     |
+| `ACME_HOME_DIR`          | *Optional.* Local path where `acme.sh` stores its data.                                                 | `/tmp/acme_home`         |
+| `CERT_BASE_PATH`         | *Optional.* Local base directory where the script will store issued certificates.                         | `/tmp/certs`             |
+| `REPORT_FILE_PATH`       | *Optional.* Path where the Markdown report will be saved.                                               | `renewal_report.md`      |
+| `LOG_FILE_PATH`          | *Optional.* Path for the detailed script execution log file.                                            | `renewal.log`            |
+| `LOG_LEVEL`              | *Optional.* Logging verbosity (`INFO`, `DEBUG`, `WARNING`, `ERROR`).                                    | `INFO`                   |
 
-**Required Variables:**
--   `IONOS_API_KEY`: Your API key for the IONOS account.
--   `ACME_EMAIL`: The email address to register with Let's Encrypt.
+### 4.2. `domains.yaml` Structure
 
-**Optional Variables:**
--   `RENEWAL_THRESHOLD_DAYS`: Days before expiry to trigger a renewal (default: 30).
--   `ACME_HOME_DIR`: Directory to store `acme.sh` configuration (default: `/tmp/acme_home`).
--   `CERT_BASE_PATH`: Base directory to store the issued certificates (default: `/tmp/certs`).
-
-### 3.2. Server Configuration
-
-Create a `config/servers.yaml` file from the `servers.yaml.example`. This file defines the servers where certificates will be deployed.
+This file maps domains to the servers where their certificates should be deployed.
 
 ```yaml
-# config/servers.yaml
-servers:
-  - name: webserver-01
-    host: 192.168.1.101
-    user: automation_user
-    ssh_key_path: "/path/to/ssh/keys/automation_key"
-    nginx_reload_command: "sudo systemctl reload nginx"
-    cert_path: "/etc/nginx/ssl"
-```
-
-### 3.3. Domain Configuration
-
-Create a `config/domains.yaml` file from the `domains.yaml.example`. This file maps domains to the servers defined in `servers.yaml`.
-
-```yaml
-# config/domains.yaml
 domains:
   - domain: example.com
     servers:
-      - webserver-01
+      - webserver-01 # Must match a 'name' in servers.yaml
       - webserver-02
   
   - domain: private.example.com
@@ -87,35 +127,16 @@ domains:
       - webserver-01
 ```
 
----
+### 4.3. `servers.yaml` Structure
 
-## 4. Execution
+This file defines the connection details and commands for each target server.
 
-1.  **Install Dependencies**:
-    ```bash
-    cd cert_automation
-    pip3 install -r requirements.txt
-    ```
-
-2.  **Install `acme.sh`**:
-    Follow the official installation guide: [https://github.com/acmesh-official/acme.sh](https://github.com/acmesh-official/acme.sh)
-
-3.  **Run the script**:
-    From within the `cert_automation/` directory, run the main script.
-    ```bash
-    python3 main.py
-    ```
-    The script will read the configuration and process all defined domains.
-
----
-
-## 5. Module Breakdown
-
--   **`main.py`**: Orchestrates the entire process. It loads configs, loops through domains, checks for renewal, and calls the ACME wrapper.
--   **`config_loader.py`**: A simple utility to load and parse YAML files (`servers.yaml`, `domains.yaml`) using `PyYAML`.
--   **`cert_manager.py`**: Contains `is_certificate_due_for_renewal()` which reads a certificate file and checks its expiry date against a threshold.
--   **`acme_client_wrapper.py`**: Provides a Python interface to the `acme.sh` shell script. It handles `register_acme_account()` and `issue_certificate()`, passing necessary environment variables like `IONOS_TOKEN`.
--   **`ionos_dns_client.py`**: A standalone client for the IONOS DNS API. While `acme.sh` handles DNS challenges internally, this client can be used for other DNS-related tasks or custom hooks.
--   **`dns_utils.py`**: A utility using `dnspython` to check for DNS record propagation on public DNS servers. This can be used for verification or custom hooks.
-
----
+```yaml
+servers:
+  - name: webserver-01
+    host: 192.168.1.101 # IP address or resolvable hostname
+    user: automation_user # User for SSH connection
+    ssh_key_path: "/path/to/local/ssh/keys/automation_key" # Path to the SSH private key on the machine running the script
+    nginx_reload_command: "sudo systemctl reload nginx" # Command to reload Nginx
+    cert_path: "/etc/nginx/ssl" # Remote path on the target server to deploy certificates
+```
