@@ -15,11 +15,8 @@ from health_checker import HealthChecker
 from logger import setup_logging
 from report_generator import generate_markdown_report
 
-# Set up centralized logging at the very beginning
-setup_logging()
+# Global logger instance, to be initialized after dynamic setup in main()
 log = logging.getLogger(__name__)
-
-load_dotenv() # Load environment variables from .env file
 
 def get_domain_ip_type(domain: str) -> str:
     """
@@ -241,8 +238,8 @@ def main():
     
     # Dynamically determine log file path
     default_log_file = os.path.join("logs", f"renewal_{timestamp}.log")
-    log_file_path = os.getenv("LOG_FILE_PATH", default_log_file)
-    setup_logging(log_file_path) # Call setup_logging with the determined path
+    final_log_file_path = os.getenv("LOG_FILE_PATH", default_log_file)
+    setup_logging(final_log_file_path) # Call setup_logging with the determined path
     log = logging.getLogger(__name__) # Re-get the logger after setup
     
     # Load environment variables after logging setup
@@ -267,7 +264,7 @@ def main():
         "ionos_api_key": os.getenv("IONOS_API_KEY"),
         "cert_base_path": os.getenv("CERT_BASE_PATH", "/tmp/certs"),
         "report_file_path": os.getenv("REPORT_FILE_PATH", os.path.join("reports", f"renewal_report_{timestamp}.md")), # Dynamic report file path
-        "log_file_path": log_file_path, # Store actual log file path in results
+        "log_file_path": final_log_file_path, # Store actual log file path in results
     }
     # Add dry_run from args to global_config for easier access in report_generator
     results["global_config"]["dry_run"] = args.dry_run

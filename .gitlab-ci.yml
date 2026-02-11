@@ -1,5 +1,11 @@
 # .gitlab-ci.yml
 
+# Define global CI/CD variables
+variables:
+  # This variable should be set in GitLab CI/CD settings and contain a space-separated list
+  # of target SSH hostnames/IPs for known_hosts population.
+  TARGET_SSH_HOSTS: "$TARGET_SSH_HOSTS_GITLAB"
+
 # Define stages for the pipeline
 stages:
   - build
@@ -43,9 +49,10 @@ cert_renewal_job:
     # Add SSH key to agent for paramiko
     - eval $(ssh-agent -s)
     - ssh-add /root/.ssh/automation_key
-    # Optional: If host keys are not managed via known_hosts file, you might need this (use with caution)
+    # Add target SSH host keys to known_hosts for strict checking (RejectPolicy)
     - mkdir -p ~/.ssh
-    - touch ~/.ssh/known_hosts 
+    - for host in $TARGET_SSH_HOSTS; do ssh-keyscan $host >> ~/.ssh/known_hosts; done
+    
   script:
     - echo "Starting certificate renewal process at $(date)..."
     # --- Critical: Environment Variables from GitLab CI/CD ---
@@ -81,13 +88,17 @@ dry_run_job:
   stage: renew
   image: $CI_REGISTRY_IMAGE:latest
   before_script:
-    # Minimal SSH setup for dry-run if required by the RemoteDeployer instantiation
+    # --- Critical: SSH Key Setup ---
+    # Create the SSH key file from CI/CD variable and set correct permissions
     - mkdir -p /root/.ssh
     - echo "$SSH_PRIVATE_KEY_GITLAB" > /root/.ssh/automation_key
     - chmod 600 /root/.ssh/automation_key
+    # Add SSH key to agent for paramiko
     - eval $(ssh-agent -s)
     - ssh-add /root/.ssh/automation_key
-    - mkdir -p ~/.ssh && touch ~/.ssh/known_hosts
+    # Add target SSH host keys to known_hosts for strict checking (RejectPolicy)
+    - mkdir -p ~/.ssh
+    - for host in $TARGET_SSH_HOSTS; do ssh-keyscan $host >> ~/.ssh/known_hosts; done
   script:
     - echo "Performing DRY RUN for certificate renewal at $(date)..."
     - export IONOS_API_KEY="$IONOS_API_KEY_GITLAB"
