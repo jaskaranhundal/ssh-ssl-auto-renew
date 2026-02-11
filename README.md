@@ -9,11 +9,12 @@ The system primarily uses the **DNS-01 challenge** with the **IONOS DNS API** vi
 -   **Version**: 1.0
 -   **Status**: Complete
 
-The project has been implemented based on the `prd.md`. The current implementation covers:
--   ✅ **Epic 1: Core Renewal Engine**: The system checks for certificate expiry, issues new certificates for all configured domains using `acme.sh`, and handles detailed error reporting.
--   ✅ **Epic 2: Configuration-Driven Management**: The system is fully driven by YAML configuration files for domains and servers, and environment variables for secrets.
--   ✅ **Epic 3: Secure Deployment & Service Reload**: Implemented secure SSH/SCP deployment of renewed certificates, Nginx configuration validation, graceful Nginx reloads, and post-deployment health checks. Includes robust rollback mechanisms.
--   ✅ **Epic 4: Operational Readiness & Portability**: Includes a `Dockerfile` for containerization, support for cron job scheduling, comprehensive logging, and a `--dry-run` mode with `acme.sh` mocking.
+This project provides a robust solution for automated SSL certificate management, encompassing the following key capabilities:
+
+*   **Automated Certificate Renewal**: Automatically checks for certificate expiry and orchestrates the issuance of new certificates using Let's Encrypt and the IONOS DNS API via `acme.sh`. Supports both specific domain and wildcard certificates.
+*   **Configuration-Driven Management**: All domains, target servers, and operational parameters are managed through simple YAML configuration files and environment variables, allowing for flexible infrastructure definition without code changes.
+*   **Secure & Resilient Deployment**: Securely deploys renewed certificates to Nginx web servers using SSH/SCP. Includes critical features like Nginx configuration validation, graceful reloads, post-deployment health checks, and automatic rollback to ensure zero downtime.
+*   **Operational Readiness**: Designed for seamless integration into various operational workflows, including local execution, cron job scheduling, and Dockerized CI/CD pipelines. Features comprehensive logging, a flexible `--dry-run` mode with `acme.sh` mocking, and a detailed Markdown report summarising each run.
 
 ---
 
