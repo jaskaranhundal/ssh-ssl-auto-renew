@@ -236,6 +236,18 @@ def main():
     )
     args = parser.parse_args()
 
+    # Generate a timestamp for unique log and report file names
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    
+    # Dynamically determine log file path
+    default_log_file = os.path.join("logs", f"renewal_{timestamp}.log")
+    log_file_path = os.getenv("LOG_FILE_PATH", default_log_file)
+    setup_logging(log_file_path) # Call setup_logging with the determined path
+    log = logging.getLogger(__name__) # Re-get the logger after setup
+    
+    # Load environment variables after logging setup
+    load_dotenv() 
+
     results = {
         "start_time": datetime.now(),
         "end_time": None,
@@ -254,7 +266,8 @@ def main():
         "acme_home_dir": os.getenv("ACME_HOME_DIR", "/tmp/acme_home"),
         "ionos_api_key": os.getenv("IONOS_API_KEY"),
         "cert_base_path": os.getenv("CERT_BASE_PATH", "/tmp/certs"),
-        "report_file_path": os.getenv("REPORT_FILE_PATH", "renewal_report.md"), # New report file path
+        "report_file_path": os.getenv("REPORT_FILE_PATH", os.path.join("reports", f"renewal_report_{timestamp}.md")), # Dynamic report file path
+        "log_file_path": log_file_path, # Store actual log file path in results
     }
     # Add dry_run from args to global_config for easier access in report_generator
     results["global_config"]["dry_run"] = args.dry_run
@@ -294,6 +307,8 @@ def main():
     report_file_path = results["global_config"]["report_file_path"]
 
     try:
+        # Ensure report directory exists
+        os.makedirs(os.path.dirname(report_file_path), exist_ok=True)
         with open(report_file_path, 'w') as f:
             f.write(markdown_report_content)
         log.info(f"Renewal report saved to: {report_file_path}")

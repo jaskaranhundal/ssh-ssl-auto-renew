@@ -67,8 +67,8 @@ cert_renewal_job:
   
   artifacts:
     paths:
-      - cert_automation/renewal_report.md # Save the generated report as an artifact
-      - cert_automation/renewal.log # Save the log file as an artifact
+      - cert_automation/reports/*.md # Save the generated report as an artifact
+      - cert_automation/logs/*.log # Save the log file as an artifact
     expire_in: 1 week # Keep artifacts for a week
 
   rules:
@@ -99,8 +99,8 @@ dry_run_job:
     - echo "DRY RUN finished."
   artifacts:
     paths:
-      - cert_automation/dry_run_renewal_report.md
-      - cert_automation/dry_run_renewal.log
+      - cert_automation/reports/*.md
+      - cert_automation/logs/*.log
     expire_in: 1 day
   rules:
     - if: '$CI_COMMIT_BRANCH == "main"'

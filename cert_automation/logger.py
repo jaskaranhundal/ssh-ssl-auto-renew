@@ -2,9 +2,10 @@ import logging
 import os
 import sys
 
-def setup_logging():
+def setup_logging(log_file_path: str = None):
     """
     Sets up a centralized, configurable logger for the application.
+    Accepts an optional log_file_path to override default or environment variable.
     """
     log_level_str = os.getenv("LOG_LEVEL", "INFO").upper()
     log_level = getattr(logging, log_level_str, logging.INFO)
@@ -27,14 +28,16 @@ def setup_logging():
     root_logger.addHandler(stream_handler)
 
     # File handler
-    log_file_path = os.getenv("LOG_FILE_PATH", "renewal.log")
+    final_log_file_path = log_file_path if log_file_path else os.getenv("LOG_FILE_PATH", "renewal.log")
     try:
-        file_handler = logging.FileHandler(log_file_path)
+        # Ensure directory exists for the log file
+        os.makedirs(os.path.dirname(final_log_file_path), exist_ok=True)
+        file_handler = logging.FileHandler(final_log_file_path)
         file_handler.setFormatter(log_formatter)
         root_logger.addHandler(file_handler)
-        logging.info(f"Logging configured. Level: {log_level_str}. Log file: {log_file_path}")
+        logging.info(f"Logging configured. Level: {log_level_str}. Log file: {final_log_file_path}")
     except Exception as e:
-        logging.error(f"Failed to configure file logger at {log_file_path}: {e}")
+        logging.error(f"Failed to configure file logger at {final_log_file_path}: {e}")
 
 if __name__ == "__main__":
     # Example usage
