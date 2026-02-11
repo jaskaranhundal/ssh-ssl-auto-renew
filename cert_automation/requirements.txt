@@ -5,3 +5,7 @@ pyOpenSSL
 dnspython
 PyYAML
 paramiko
+
+# Testing
+pytest
+pytest-mock
