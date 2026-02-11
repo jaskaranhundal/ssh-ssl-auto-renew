@@ -1,0 +1,17 @@
+# Example domains.yaml configuration (S-202)
+# Maps domains to the servers where their certificates should be deployed.
+# Server names must correspond to names defined in servers.yaml.
+
+domains:
+  - domain: example.com
+    servers:
+      - webserver-01
+      - webserver-02
+  
+  - domain: private.example.com
+    servers:
+      - webserver-01
+  
+  - domain: another-public-domain.net
+    servers:
+      - webserver-02

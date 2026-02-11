@@ -1,0 +1,17 @@
+# Example servers.yaml configuration (S-201)
+# Defines the target servers where certificates will be deployed.
+
+servers:
+  - name: webserver-01
+    host: 192.168.1.101
+    user: automation_user
+    ssh_key_path: "/path/to/ssh/keys/automation_key"
+    nginx_reload_command: "sudo systemctl reload nginx"
+    cert_path: "/etc/nginx/ssl"
+
+  - name: webserver-02
+    host: 192.168.1.102
+    user: automation_user
+    ssh_key_path: "/path/to/ssh/keys/automation_key"
+    nginx_reload_command: "sudo service nginx reload"
+    cert_path: "/etc/ssl/private"
