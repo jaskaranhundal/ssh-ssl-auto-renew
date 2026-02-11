@@ -1,0 +1,39 @@
+# cron.example
+# This file provides examples of how to schedule the SSL certificate renewal script using cron.
+
+# Recommended: Run once per day at a random time to avoid hammering the Let's Encrypt API.
+# This example runs the script at 3:30 AM every day.
+
+# Note: Make sure to replace /path/to/project with the absolute path to this project's directory.
+
+# -----------------------------------------------------------------------------
+# Example 1: Running the script using the Docker container (Recommended)
+# -----------------------------------------------------------------------------
+# This is the recommended approach as it ensures the environment is consistent.
+# It assumes you have already built the Docker image with a tag like 'ssl-automation'.
+#
+# docker build -t ssl-automation .
+#
+# The command does the following:
+# - Runs the 'ssl-automation' container.
+# - `--rm` automatically removes the container when it exits.
+# - `-v /path/to/project/cert_automation/config:/app/config:ro` mounts the local config read-only.
+# - `-v /path/to/project/certs:/certs` mounts a local directory to persist certificates.
+# - `-v /path/to/home/.ssh/automation_key:/root/.ssh/id_rsa:ro` mounts the private SSH key read-only.
+# - `--env-file /path/to/project/cert_automation/.env` loads all secrets from the .env file.
+# - `>> /var/log/ssl_automation.log 2>&1` appends all output (stdout and stderr) to a log file.
+
+30 3 * * * docker run --rm -v /path/to/project/cert_automation/config:/app/config:ro -v /path/to/project/certs:/certs -v /path/to/home/.ssh/automation_key:/root/.ssh/id_rsa:ro --env-file /path/to/project/cert_automation/.env ssl-automation >> /var/log/ssl_automation.log 2>&1
+
+# -----------------------------------------------------------------------------
+# Example 2: Running the script directly with a local Python environment
+# -----------------------------------------------------------------------------
+# This approach requires that Python, pip, and all dependencies from requirements.txt
+# are installed and available in the cron user's environment. `acme.sh` must also be in the PATH.
+#
+# The command does the following:
+# - `cd /path/to/project/cert_automation` changes to the script directory first.
+# - `python3 main.py` executes the script.
+# - `>> /path/to/project/cert_automation.log 2>&1` appends output to a log file within the project.
+
+30 3 * * * cd /path/to/project/cert_automation && python3 main.py >> /path/to/project/cert_automation.log 2>&1
