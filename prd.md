@@ -2,7 +2,7 @@
 
 - **Version**: 1.0
 - **Status**: Draft
-- **Author**: Mary, Business Analyst
+- **Author**: Jaskarn Singh
 - **Date**: 2026-02-10
 
 ---
