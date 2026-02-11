@@ -1,0 +1,107 @@
+# .gitlab-ci.yml
+
+# Define stages for the pipeline
+stages:
+  - build
+  - test
+  - renew
+
+# Build Docker Image Job
+build_image:
+  stage: build
+  image: docker:latest
+  services:
+    - docker:dind # Docker in Docker for building images
+  script:
+    - docker login -u $CI_REGISTRY_USER -p $CI_REGISTRY_PASSWORD $CI_REGISTRY
+    - docker build -t $CI_REGISTRY_IMAGE:$CI_COMMIT_SHA -t $CI_REGISTRY_IMAGE:latest .
+    - docker push $CI_REGISTRY_IMAGE:$CI_COMMIT_SHA
+    - docker push $CI_REGISTRY_IMAGE:latest
+  rules:
+    - if: '$CI_COMMIT_BRANCH == "main"' # Only build on main branch commits
+
+# Run Tests Job
+run_tests:
+  stage: test
+  image: $CI_REGISTRY_IMAGE:latest # Use the custom Docker image
+  script:
+    - cd cert_automation
+    - pytest # Assumes pytest is installed in the Docker image and tests are in tests/
+  rules:
+    - if: '$CI_COMMIT_BRANCH == "main"' # Run tests on main branch commits
+
+# Scheduled Certificate Renewal Job
+cert_renewal_job:
+  stage: renew
+  image: $CI_REGISTRY_IMAGE:latest # Use the custom Docker image
+  before_script:
+    # --- Critical: SSH Key Setup ---
+    # Create the SSH key file from CI/CD variable and set correct permissions
+    - mkdir -p /root/.ssh
+    - echo "$SSH_PRIVATE_KEY_GITLAB" > /root/.ssh/automation_key
+    - chmod 600 /root/.ssh/automation_key
+    # Add SSH key to agent for paramiko
+    - eval $(ssh-agent -s)
+    - ssh-add /root/.ssh/automation_key
+    # Optional: If host keys are not managed via known_hosts file, you might need this (use with caution)
+    - mkdir -p ~/.ssh
+    - touch ~/.ssh/known_hosts 
+  script:
+    - echo "Starting certificate renewal process at $(date)..."
+    # --- Critical: Environment Variables from GitLab CI/CD ---
+    # These variables MUST be set in GitLab project settings (Settings -> CI/CD -> Variables)
+    # Mark them as Protected and Masked for security.
+    - export IONOS_API_KEY="$IONOS_API_KEY_GITLAB"
+    - export ACME_EMAIL="$ACME_EMAIL_GITLAB"
+    - export RENEWAL_THRESHOLD_DAYS="30" # Can also be a CI/CD variable
+    - export ACME_HOME_DIR="/tmp/acme_home" 
+    - export CERT_BASE_PATH="/tmp/certs"
+    - export REPORT_FILE_PATH="renewal_report.md" # Report saved in job artifact
+    - export LOG_FILE_PATH="renewal.log" # Log saved in job artifact
+    
+    # Execute the main Python script from the cert_automation directory
+    - cd cert_automation
+    - python3 main.py
+
+    - echo "Certificate renewal process finished at $(date)."
+  
+  artifacts:
+    paths:
+      - cert_automation/renewal_report.md # Save the generated report as an artifact
+      - cert_automation/renewal.log # Save the log file as an artifact
+    expire_in: 1 week # Keep artifacts for a week
+
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "schedule"' # Automatically run on schedule
+    - if: '$CI_COMMIT_BRANCH == "main"'
+      when: manual # Allow manual execution from the 'main' branch for testing/emergency
+
+# Dry Run Job (Optional, for manual testing of configuration)
+dry_run_job:
+  stage: renew
+  image: $CI_REGISTRY_IMAGE:latest
+  before_script:
+    # Minimal SSH setup for dry-run if required by the RemoteDeployer instantiation
+    - mkdir -p /root/.ssh
+    - echo "$SSH_PRIVATE_KEY_GITLAB" > /root/.ssh/automation_key
+    - chmod 600 /root/.ssh/automation_key
+    - eval $(ssh-agent -s)
+    - ssh-add /root/.ssh/automation_key
+    - mkdir -p ~/.ssh && touch ~/.ssh/known_hosts
+  script:
+    - echo "Performing DRY RUN for certificate renewal at $(date)..."
+    - export IONOS_API_KEY="$IONOS_API_KEY_GITLAB"
+    - export ACME_EMAIL="$ACME_EMAIL_GITLAB"
+    - export REPORT_FILE_PATH="dry_run_renewal_report.md" # Use a different name for dry run report
+    - export LOG_FILE_PATH="dry_run_renewal.log"
+    - cd cert_automation
+    - python3 main.py --dry-run
+    - echo "DRY RUN finished."
+  artifacts:
+    paths:
+      - cert_automation/dry_run_renewal_report.md
+      - cert_automation/dry_run_renewal.log
+    expire_in: 1 day
+  rules:
+    - if: '$CI_COMMIT_BRANCH == "main"'
+      when: manual # Only manual trigger for dry-runs
