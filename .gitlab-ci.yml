@@ -41,6 +41,12 @@ cert_renewal_job:
   stage: renew
   image: $CI_REGISTRY_IMAGE:latest # Use the custom Docker image
   before_script:
+    # --- Create config files from CI/CD variables ---
+    - echo "Creating configuration files from CI/CD variables..."
+    - mkdir -p cert_automation/config
+    - echo "$CI_DOMAINS_YAML" > cert_automation/config/domains.yaml
+    - echo "$CI_SERVERS_YAML" > cert_automation/config/servers.yaml
+    - echo "Successfully created config files."
     # --- Critical: SSH Key Setup ---
     # Create the SSH key file from CI/CD variable and set correct permissions
     - mkdir -p /root/.ssh
@@ -88,6 +94,12 @@ dry_run_job:
   stage: renew
   image: $CI_REGISTRY_IMAGE:latest
   before_script:
+    # --- Create config files from CI/CD variables ---
+    - echo "Creating configuration files from CI/CD variables..."
+    - mkdir -p cert_automation/config
+    - echo "$CI_DOMAINS_YAML" > cert_automation/config/domains.yaml
+    - echo "$CI_SERVERS_YAML" > cert_automation/config/servers.yaml
+    - echo "Successfully created config files."
     # --- Critical: SSH Key Setup ---
     # Create the SSH key file from CI/CD variable and set correct permissions
     - mkdir -p /root/.ssh
