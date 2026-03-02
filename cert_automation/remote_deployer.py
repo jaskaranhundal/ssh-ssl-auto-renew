@@ -33,7 +33,7 @@ class RemoteDeployer:
             log.info(f"Connecting to {self.user}@{self.host}...")
             self._ssh_client = paramiko.SSHClient()
             self._ssh_client.load_system_host_keys()
-            self._ssh_client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+            self._ssh_client.set_missing_host_key_policy(paramiko.RejectPolicy())
             
             self._ssh_client.connect(
                 hostname=self.host,
