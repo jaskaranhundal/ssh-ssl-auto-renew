@@ -4,44 +4,28 @@ This project provides a "set-it-and-forget-it" utility for automatically renewin
 
 The system primarily uses the **DNS-01 challenge** with the **IONOS DNS API** via `acme.sh` to issue certificates, meaning it does not need to expose any ports on the target servers.
 
-## Project Status
-
--   **Version**: 1.0
--   **Status**: Complete
-
-This project provides a robust solution for automated SSL certificate management, encompassing the following key capabilities:
-
-*   **Automated Certificate Renewal**: Automatically checks for certificate expiry and orchestrates the issuance of new certificates using Let's Encrypt and the IONOS DNS API via `acme.sh`. Supports both specific domain and wildcard certificates.
-*   **Configuration-Driven Management**: All domains, target servers, and operational parameters are managed through simple YAML configuration files and environment variables, allowing for flexible infrastructure definition without code changes.
-*   **Secure & Resilient Deployment**: Securely deploys renewed certificates to Nginx web servers using SSH/SCP. Includes critical features like Nginx configuration validation, graceful reloads, post-deployment health checks, and automatic rollback to ensure zero downtime.
-*   **Operational Readiness**: Designed for seamless integration into various operational workflows, including local execution, cron job scheduling, and Dockerized CI/CD pipelines. Features comprehensive logging, a flexible `--dry-run` mode with `acme.sh` mocking, and a detailed Markdown report summarising each run.
-
----
-
 ## How It Works
 
 The main orchestration script (`cert_automation/main.py`) performs the following steps:
-1.  Loads server and domain configurations from `cert_automation/config/`.
-2.  Loads sensitive credentials and configuration parameters from an environment file (`.env`).
-3.  For each configured domain, it checks if the domain resolves to a public or private IP address.
-    -   If **private**, it will request a **wildcard certificate** (e.g., `*.private.example.com`).
-    -   If **public**, it will request a **specific certificate** (e.g., `www.example.com`).
-4.  It determines if the existing certificate for the domain is due for renewal.
-5.  If renewal is needed, it orchestrates the `acme.sh` client (with retry logic) to perform the Let's Encrypt DNS-01 challenge via the IONOS DNS API.
-6.  Upon successful certificate issuance, it securely deploys the new certificate and key to the configured target servers using SSH/SCP (with retry logic).
-7.  During deployment, it validates the Nginx configuration, gracefully reloads Nginx, and performs health checks to confirm successful deployment and certificate activation.
-8.  Robust error handling with rollback mechanisms ensures service stability during deployment failures.
-9.  Generates a detailed Markdown report (`renewal_report.md`) summarizing the entire process.
+1.  Loads server and domain configurations. For local development, it reads from `cert_automation/config/*.yaml` files. In a CI/CD environment, these are generated from environment variables.
+2.  Loads sensitive credentials from environment variables.
+3.  For each configured domain, it checks if the certificate is due for renewal.
+4.  If renewal is needed, it orchestrates the `acme.sh` client to perform the Let's Encrypt DNS-01 challenge.
+5.  Upon successful issuance, it securely deploys the new certificate and key to the configured target servers using SSH/SCP.
+6.  During deployment, it validates the Nginx configuration, gracefully reloads Nginx, and performs health checks.
+7.  Generates a detailed Markdown report summarizing the process.
 
 ---
 
-## Getting Started
+## Getting Started (Local Development)
+
+This setup is for running and testing the script on your local machine.
 
 ### 1. Prerequisites
 
 -   Python 3.9+
--   `acme.sh`: You must install this tool on the system where you will run the script for **live runs**. Follow the official installation guide: [https://github.com/acmesh-official/acme.sh](https://github.com/acmesh-official/acme.sh). For `--dry-run` simulations, `acme.sh`'s presence is mocked, allowing the workflow to be tested without its actual installation.
--   SSH access with key-based authentication configured for your target servers for the `automation_user` specified in `servers.yaml`.
+-   `acme.sh`: Required for live runs. Follow the [official installation guide](https://github.com/acmesh-official/acme.sh). Not needed for `--dry-run` simulations.
+-   SSH access with key-based authentication to your target servers.
 
 ### 2. Configuration
 
@@ -55,61 +39,55 @@ The main orchestration script (`cert_automation/main.py`) performs the following
     pip3 install -r requirements.txt
     ```
 
-3.  **Create Environment File (`.env`)**:
-    Copy `.env.example` to `.env` and fill in your details.
+3.  **Create Local Configuration Files**:
+    The `domains.yaml` and `servers.yaml` files are ignored by Git. Create them locally from the provided examples.
+    ```bash
+    cp config/servers.yaml.example config/servers.yaml
+    cp config/domains.yaml.example config/domains.yaml
+    ```
+    -   Edit `config/servers.yaml` to define your target servers.
+    -   Edit `config/domains.yaml` to map your domains to the servers.
+
+4.  **Create Environment File (`.env`)**:
+    Copy `.env.example` to `.env` and fill in your secrets. This file is also ignored by Git.
     ```bash
     cp .env.example .env
     ```
     You will need to provide:
     -   `IONOS_API_KEY`: Your API key for your IONOS account.
     -   `ACME_EMAIL`: The email address to register with Let's Encrypt.
-    -   `RENEWAL_THRESHOLD_DAYS`: (Optional) Number of days before expiry to trigger renewal (default: 30).
-    -   `ACME_HOME_DIR`: (Optional) Path where `acme.sh` stores its data (default: `/tmp/acme_home`).
-    -   `CERT_BASE_PATH`: (Optional) Local base directory for storing issued certificates (default: `/tmp/certs`).
-    -   `REPORT_FILE_PATH`: (Optional) Path for the generated Markdown report (default: `renewal_report.md`).
-    -   `LOG_FILE_PATH`: (Optional) Path for the detailed log file (default: `renewal.log`).
-    -   `LOG_LEVEL`: (Optional) Logging verbosity (e.g., INFO, DEBUG, WARNING, ERROR) (default: INFO).
-
-4.  **Configure Servers (`config/servers.yaml`)**:
-    Copy `config/servers.yaml.example` to `config/servers.yaml` and define your target servers. Ensure `ssh_key_path` points to the correct location of your automation SSH private key.
-    ```bash
-    cp config/servers.yaml.example config/servers.yaml
-    ```
-
-5.  **Configure Domains (`config/domains.yaml`)**:
-    Copy `config/domains.yaml.example` to `config/domains.yaml` and map your domains to the servers you defined.
-    ```bash
-    cp config/domains.yaml.example config/domains.yaml
-    ```
+    -   ... (and any other optional variables)
 
 ### 3. Execution
 
 With all configuration in place, run the main script from within the `cert_automation/` directory:
 
 ```bash
-# For a live run (requires acme.sh installed and correct API keys)
+# For a live run
 python3 main.py
 
 # For a dry run (simulates the process, useful for testing configuration)
 python3 main.py --dry-run
 ```
 
-After execution, a detailed Markdown report will be generated at the path specified by `REPORT_FILE_PATH` (default: `renewal_report.md`).
-
 ---
 
-## Operational Readiness
+## Production & CI/CD Configuration
 
-### Scheduling with Cron
+In a production environment like GitLab CI/CD, you should **not** use `.yaml` or `.env` files directly. Instead, the pipeline uses GitLab CI/CD variables.
 
-A `cron.example` file is provided in the project root, demonstrating how to schedule the script to run periodically (e.g., daily). Ensure your cron environment correctly sources the `.env` file or explicitly provides the necessary environment variables.
+As configured in `.gitlab-ci.yml`, the pipeline will:
+1.  Read the content for your configuration from protected, masked **File** type variables in your GitLab project settings.
+2.  Create the `domains.yaml` and `servers.yaml` files inside the CI job at runtime.
 
-### Docker Containerization
+**Required GitLab CI/CD Variables:**
 
-A `Dockerfile` is included to build a custom Docker image containing all dependencies (`acme.sh`, Python libraries). This allows for consistent and reproducible execution within a containerized environment, ideal for CI/CD pipelines (e.g., GitLab CI/CD).
+Go to your GitLab project's `Settings -> CI/CD -> Variables` and create:
+
+*   **`CI_DOMAINS_YAML`** (Type: `File`): Paste the entire content of your production `domains.yaml` file here.
+*   **`CI_SERVERS_YAML`** (Type: `File`): Paste the entire content of your production `servers.yaml` file here.
+*   **`IONOS_API_KEY_GITLAB`** (Type: `Variable`): Your IONOS API key.
+*   **`ACME_EMAIL_GITLAB`** (Type: `Variable`): Your Let's Encrypt email.
+*   **`SSH_PRIVATE_KEY_GITLAB`** (Type: `File`): Your private SSH key for server deployment.
 
 ---
-
-## Technical Deep Dive
-
-For a comprehensive understanding of the system's architecture, module breakdown, technical design, error handling, and CI/CD integration, refer to the `docs/technical_deep_dive.md` document.
