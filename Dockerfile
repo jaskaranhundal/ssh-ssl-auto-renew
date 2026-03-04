@@ -13,21 +13,26 @@ WORKDIR /app
 
 # Install system dependencies
 # - curl is needed to install acme.sh
-# - git is a dependency for acme.sh for some operations
-# - openssh-client is needed for the ssh/scp operations via paramiko
-# - sudo for commands like 'sudo nginx -t' (if paramiko is used with sudo)
+# - git is a dependency for acme.sh
+# - socat is often required by acme.sh
+# - openssh-client is needed for paramiko operations
 RUN apt-get update && apt-get install -y --no-install-recommends \
     curl \
     git \
+    socat \
     openssh-client \
     sudo \
     # Clean up apt cache
     && rm -rf /var/lib/apt/lists/*
 
-# Install acme.sh globally, accessible by all users
-# It is installed to /usr/local/bin/acme.sh by default with --install
-RUN curl https://get.acme.sh | sh -s -- --install --home /home/certuser/.acme.sh
+# Install acme.sh for the certuser
+RUN curl https://get.acme.sh | sh -s -- --install --home /home/certuser/.acme.sh \
+    --accountemail "jaskarn.singh@lindera.de"
+
+# Add acme.sh to PATH
 ENV PATH="/home/certuser/.acme.sh:${PATH}"
+# Explicitly set the command path for the Python script
+ENV ACME_SH_COMMAND="/home/certuser/.acme.sh/acme.sh"
 
 # Copy application requirements
 COPY cert_automation/requirements.txt .
@@ -36,19 +41,18 @@ COPY cert_automation/requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
 # Copy the application code into the container
-# Copy contents of cert_automation into /app
 COPY cert_automation/ .
 
-# Ensure necessary directories for logs and reports are created and owned by certuser
+# Ensure necessary directories exist and have correct ownership
 RUN mkdir -p /app/logs /app/reports /app/certs \
     && chown -R certuser:certuser /app \
     && chown -R certuser:certuser /home/certuser/.acme.sh
 
 # Set environment variables
 ENV CERT_BASE_PATH="/app/certs"
-ENV ACME_HOME_DIR="/home/certuser/.acme.sh" # acme.sh home directory
-ENV LOG_FILE_PATH="/app/logs/renewal.log" # Default log path inside container
-ENV REPORT_FILE_PATH="/app/reports/renewal_report.md" # Default report path inside container
+ENV ACME_HOME_DIR="/home/certuser/.acme.sh"
+ENV LOG_FILE_PATH="/app/logs/renewal.log"
+ENV REPORT_FILE_PATH="/app/reports/renewal_report.md"
 
 # Switch to the non-root user
 USER certuser

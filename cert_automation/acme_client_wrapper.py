@@ -8,21 +8,26 @@ log = logging.getLogger(__name__)
 
 _acme_sh_actual_installed = False # Global flag to remember actual acme.sh status
 
+def _get_acme_command() -> str:
+    """Gets the acme.sh command from environment variables or defaults."""
+    return os.getenv("ACME_SH_COMMAND", "acme.sh")
+
 def _check_acme_sh_installed(dry_run: bool = False) -> bool:
     """Checks if acme.sh is installed and executable.
     In dry_run mode, if not found, it logs a warning but returns True to allow simulation."""
     global _acme_sh_actual_installed
+    acme_cmd = _get_acme_command()
     try:
-        subprocess.run(["acme.sh", "--version"], check=True, capture_output=True)
+        subprocess.run([acme_cmd, "--version"], check=True, capture_output=True)
         _acme_sh_actual_installed = True
         return True
     except (subprocess.CalledProcessError, FileNotFoundError):
         if dry_run:
-            log.warning("acme.sh not found, but dry_run is active. Simulating acme.sh's presence.")
+            log.warning(f"{acme_cmd} not found, but dry_run is active. Simulating acme.sh's presence.")
             _acme_sh_actual_installed = False # Still not actually installed
             return True # Allow dry-run to proceed
         else:
-            log.error("acme.sh is not installed or not in PATH. Please install it first.")
+            log.error(f"{acme_cmd} is not installed or not in PATH. Please install it first or set ACME_SH_COMMAND.")
             _acme_sh_actual_installed = False
             return False
 
@@ -53,7 +58,7 @@ def run_acme_command(command_args: List[str], env_vars: Optional[Dict[str, str]]
     # Check if acme.sh is installed (or being mocked for dry_run)
     if not _check_acme_sh_installed(dry_run=dry_run):
         # This branch is only taken if not dry_run and acme.sh is truly missing
-        raise FileNotFoundError("acme.sh is not installed or not in PATH.")
+        raise FileNotFoundError(f"{_get_acme_command()} is not installed or not in PATH.")
 
     # If it's a dry run and acme.sh was NOT actually found, simulate success
     if dry_run and not _acme_sh_actual_installed:
@@ -64,7 +69,8 @@ def run_acme_command(command_args: List[str], env_vars: Optional[Dict[str, str]]
     if env_vars:
         full_env.update(env_vars)
 
-    cmd = ["acme.sh"] + command_args
+    # Force Let's Encrypt by adding --server letsencrypt
+    cmd = [_get_acme_command()] + command_args + ["--server", "letsencrypt"]
     
     if dry_run:
         cmd.append("--staging")
@@ -82,7 +88,7 @@ def run_acme_command(command_args: List[str], env_vars: Optional[Dict[str, str]]
         log.error(error_msg)
         raise # Re-raise the exception after logging
     except FileNotFoundError: # This will catch the specific error if _acme_sh_actual_installed is False after check
-        error_msg = "acme.sh command not found. Ensure it's in your PATH."
+        error_msg = f"{_get_acme_command()} command not found. Ensure it's in your PATH or set ACME_SH_COMMAND."
         log.error(error_msg)
         raise # Re-raise
     except Exception as e:
@@ -104,9 +110,11 @@ def issue_certificate(
     domain: str,
     acme_home_dir: str,
     ionos_api_key: str,
+    ionos_api_secret: str,
     email: str,
     cert_storage_path: str,
     dry_run: bool = False,
+    force_renewal: bool = False,
     key_length: str = "2048"
 ) -> None:
     """
@@ -124,7 +132,11 @@ def issue_certificate(
     if not dry_run:
         os.makedirs(cert_storage_path, exist_ok=True)
 
-    env_vars = {"IONOS_TOKEN": ionos_api_key}
+    # acme.sh dns_ionos expects IONOS_API_KEY and IONOS_API_SECRET
+    env_vars = {
+        "IONOS_API_KEY": ionos_api_key,
+        "IONOS_API_SECRET": ionos_api_secret
+    }
 
     command_args = [
         "--issue",
@@ -133,9 +145,11 @@ def issue_certificate(
         "--home", acme_home_dir,
         "--keylength", key_length,
         "--fullchain-file", os.path.join(cert_storage_path, "fullchain.cer"),
-        "--key-file", os.path.join(cert_storage_path, "domain.key"),
-        "--reload-cmd", "echo 'Certificate issued.'"
+        "--key-file", os.path.join(cert_storage_path, "domain.key")
     ]
+
+    if force_renewal:
+        command_args.append("--force")
 
     try:
         run_acme_command(command_args, env_vars=env_vars, dry_run=dry_run)

@@ -1,130 +1,124 @@
-# .gitlab-ci.yml
+# .gitlab-ci.yml - Automated SSL Certificate Renewal System
 
-# Define global CI/CD variables
 variables:
-  # This variable should be set in GitLab CI/CD settings and contain a space-separated list
-  # of target SSH hostnames/IPs for known_hosts population.
+  # Base image for Python tools
+  PYTHON_IMAGE: "python:3.10-slim-buster"
+  # Target SSH hosts for known_hosts population
   TARGET_SSH_HOSTS: "$TARGET_SSH_HOSTS_GITLAB"
 
-# Define stages for the pipeline
 stages:
-  - build
+  - lint
   - test
+  - security
+  - build
   - renew
 
-# Build Docker Image Job
+# --- Stage: Lint ---
+lint_python:
+  stage: lint
+  image: $PYTHON_IMAGE
+  script:
+    - pip install flake8
+    - flake8 cert_automation/ --count --select=E9,F63,F7,F82 --show-source --statistics
+    - flake8 cert_automation/ --count --exit-zero --max-complexity=10 --max-line-length=127 --statistics
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "push"'
+
+# --- Stage: Test ---
+unit_tests:
+  stage: test
+  image: $PYTHON_IMAGE
+  script:
+    - pip install -r cert_automation/requirements.txt
+    - export PYTHONPATH=$PYTHONPATH:$(pwd)/cert_automation
+    - pytest tests/
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "push"'
+
+# --- Stage: Security ---
+# Software Composition Analysis (SCA) - Check for vulnerable dependencies
+sca_scan:
+  stage: security
+  image: $PYTHON_IMAGE
+  script:
+    - pip install safety
+    - safety check -r cert_automation/requirements.txt
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "push"'
+
+# Static Analysis Security Testing (SAST) - Check for security issues in code
+sast_bandit:
+  stage: security
+  image: $PYTHON_IMAGE
+  script:
+    - pip install bandit
+    - bandit -r cert_automation/ -ll
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "push"'
+
+# --- Stage: Build ---
 build_image:
   stage: build
   image: docker:latest
   services:
-    - docker:dind # Docker in Docker for building images
+    - docker:dind
   script:
     - docker login -u $CI_REGISTRY_USER -p $CI_REGISTRY_PASSWORD $CI_REGISTRY
     - docker build -t $CI_REGISTRY_IMAGE:$CI_COMMIT_SHA -t $CI_REGISTRY_IMAGE:latest .
     - docker push $CI_REGISTRY_IMAGE:$CI_COMMIT_SHA
     - docker push $CI_REGISTRY_IMAGE:latest
   rules:
-    - if: '$CI_COMMIT_BRANCH == "main"' # Only build on main branch commits
+    - if: '$CI_COMMIT_BRANCH == "main" || $CI_COMMIT_BRANCH == "development" || $CI_COMMIT_BRANCH == "test"'
 
-# Run Tests Job
-run_tests:
-  stage: test
-  image: $CI_REGISTRY_IMAGE:latest # Use the custom Docker image
-  script:
-    - cd cert_automation
-    - pytest # Assumes pytest is installed in the Docker image and tests are in tests/
-  rules:
-    - if: '$CI_COMMIT_BRANCH == "main"' # Run tests on main branch commits
-
-# Scheduled Certificate Renewal Job
-cert_renewal_job:
+# --- Stage: Renew (Dry Run on Branch Updates) ---
+branch_dry_run:
   stage: renew
-  image: $CI_REGISTRY_IMAGE:latest # Use the custom Docker image
+  image: $CI_REGISTRY_IMAGE:$CI_COMMIT_SHA
   before_script:
-    # --- Create config files from CI/CD variables ---
-    - echo "Creating configuration files from CI/CD variables..."
     - mkdir -p cert_automation/config
     - echo "$CI_DOMAINS_YAML" > cert_automation/config/domains.yaml
     - echo "$CI_SERVERS_YAML" > cert_automation/config/servers.yaml
-    - echo "Successfully created config files."
-    # --- Critical: SSH Key Setup ---
-    # Create the SSH key file from CI/CD variable and set correct permissions
-    - mkdir -p /root/.ssh
-    - echo "$SSH_PRIVATE_KEY_GITLAB" > /root/.ssh/automation_key
-    - chmod 600 /root/.ssh/automation_key
-    # Add SSH key to agent for paramiko
-    - eval $(ssh-agent -s)
-    - ssh-add /root/.ssh/automation_key
-    # Add target SSH host keys to known_hosts for strict checking (RejectPolicy)
-    - mkdir -p ~/.ssh
+    - mkdir -p /root/.ssh && echo "$SSH_PRIVATE_KEY_GITLAB" > /root/.ssh/automation_key && chmod 600 /root/.ssh/automation_key
+    - eval $(ssh-agent -s) && ssh-add /root/.ssh/automation_key
     - for host in $TARGET_SSH_HOSTS; do ssh-keyscan $host >> ~/.ssh/known_hosts; done
-    
   script:
-    - echo "Starting certificate renewal process at $(date)..."
-    # --- Critical: Environment Variables from GitLab CI/CD ---
-    # These variables MUST be set in GitLab project settings (Settings -> CI/CD -> Variables)
-    # Mark them as Protected and Masked for security.
+    - echo "Validating configuration via DRY RUN for branch $CI_COMMIT_BRANCH..."
     - export IONOS_API_KEY="$IONOS_API_KEY_GITLAB"
+    - export IONOS_API_SECRET="$IONOS_API_SECRET_GITLAB"
     - export ACME_EMAIL="$ACME_EMAIL_GITLAB"
-    - export RENEWAL_THRESHOLD_DAYS="30" # Can also be a CI/CD variable
-    - export ACME_HOME_DIR="/tmp/acme_home" 
-    - export CERT_BASE_PATH="/tmp/certs"
-    - export REPORT_FILE_PATH="renewal_report.md" # Report saved in job artifact
-    - export LOG_FILE_PATH="renewal.log" # Log saved in job artifact
-    
-    # Execute the main Python script from the cert_automation directory
+    - export ACME_SH_COMMAND="/home/certuser/.acme.sh/acme.sh"
     - cd cert_automation
-    - python3 main.py
-
-    - echo "Certificate renewal process finished at $(date)."
-  
-  artifacts:
-    paths:
-      - cert_automation/reports/*.md # Save the generated report as an artifact
-      - cert_automation/logs/*.log # Save the log file as an artifact
-    expire_in: 1 week # Keep artifacts for a week
-
+    - python3 main.py --dry-run --force
   rules:
-    - if: '$CI_PIPELINE_SOURCE == "schedule"' # Automatically run on schedule
-    - if: '$CI_COMMIT_BRANCH == "main"'
-      when: manual # Allow manual execution from the 'main' branch for testing/emergency
+    - if: '$CI_PIPELINE_SOURCE == "schedule"'
+      when: never
+    - if: '$CI_COMMIT_BRANCH == "main" || $CI_COMMIT_BRANCH == "development" || $CI_COMMIT_BRANCH == "test"'
 
-# Dry Run Job (Optional, for manual testing of configuration)
-dry_run_job:
+# --- Stage: Renew (Actual Renewal on Schedule Only) ---
+scheduled_renewal:
   stage: renew
   image: $CI_REGISTRY_IMAGE:latest
   before_script:
-    # --- Create config files from CI/CD variables ---
-    - echo "Creating configuration files from CI/CD variables..."
     - mkdir -p cert_automation/config
     - echo "$CI_DOMAINS_YAML" > cert_automation/config/domains.yaml
     - echo "$CI_SERVERS_YAML" > cert_automation/config/servers.yaml
-    - echo "Successfully created config files."
-    # --- Critical: SSH Key Setup ---
-    # Create the SSH key file from CI/CD variable and set correct permissions
-    - mkdir -p /root/.ssh
-    - echo "$SSH_PRIVATE_KEY_GITLAB" > /root/.ssh/automation_key
-    - chmod 600 /root/.ssh/automation_key
-    # Add SSH key to agent for paramiko
-    - eval $(ssh-agent -s)
-    - ssh-add /root/.ssh/automation_key
-    # Add target SSH host keys to known_hosts for strict checking (RejectPolicy)
-    - mkdir -p ~/.ssh
+    - mkdir -p /root/.ssh && echo "$SSH_PRIVATE_KEY_GITLAB" > /root/.ssh/automation_key && chmod 600 /root/.ssh/automation_key
+    - eval $(ssh-agent -s) && ssh-add /root/.ssh/automation_key
     - for host in $TARGET_SSH_HOSTS; do ssh-keyscan $host >> ~/.ssh/known_hosts; done
   script:
-    - echo "Performing DRY RUN for certificate renewal at $(date)..."
+    - echo "Executing SCHEDULED certificate renewal..."
     - export IONOS_API_KEY="$IONOS_API_KEY_GITLAB"
+    - export IONOS_API_SECRET="$IONOS_API_SECRET_GITLAB"
     - export ACME_EMAIL="$ACME_EMAIL_GITLAB"
-    - export REPORT_FILE_PATH="dry_run_renewal_report.md" # Use a different name for dry run report
-    - export LOG_FILE_PATH="dry_run_renewal.log"
+    - export ACME_SH_COMMAND="/home/certuser/.acme.sh/acme.sh"
     - cd cert_automation
-    - python3 main.py --dry-run
-    - echo "DRY RUN finished."
+    - python3 main.py --force
   artifacts:
     paths:
       - cert_automation/reports/*.md
       - cert_automation/logs/*.log
-    expire_in: 1 day
+    expire_in: 1 week
   rules:
+    - if: '$CI_PIPELINE_SOURCE == "schedule"'
     - if: '$CI_COMMIT_BRANCH == "main"'
-      when: manual # Only manual trigger for dry-runs
+      when: manual # Allow manual override on main only

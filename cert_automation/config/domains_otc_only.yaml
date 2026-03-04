@@ -1,0 +1,10 @@
+# OTC Only test configuration
+domains:
+  - domain: "*.lindera.de"
+
+
+
+    otc_elb:
+      listeners:
+        - name: "elb-lindera-listener"
+          id: "7a3ab959b5f6420391032b94a6a956d7"

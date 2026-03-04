@@ -55,8 +55,8 @@ def is_certificate_due_for_renewal(cert_path: str, renewal_threshold_days: int) 
     """
     expiry_date = get_certificate_expiry_date(cert_path)
     if expiry_date is None:
-        logging.warning(f"Could not determine expiry date for {cert_path}. Assuming not due for renewal.")
-        return False
+        logging.info(f"Certificate {cert_path} not found or invalid. Triggering initial issuance.")
+        return True
 
     now = datetime.now()
     renewal_date = expiry_date - timedelta(days=renewal_threshold_days)

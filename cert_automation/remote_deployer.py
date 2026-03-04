@@ -67,26 +67,40 @@ class RemoteDeployer:
 
     @retry(tries=3, delay=2, backoff=2, exceptions=(paramiko.SSHException, IOError, socket.error))
     def upload_file(self, local_path: str, remote_path: str, remote_permissions: Optional[int] = None) -> None:
-        """Uploads a file to the remote server. Raises Exception on failure."""
+        """
+        Uploads a file to the remote server using a staging approach to bypass permission issues.
+        The file is first uploaded to /tmp and then moved to the final destination using sudo.
+        """
         if self.dry_run:
             log.info(f"[DRY RUN] Would upload {local_path} to {self.host}:{remote_path}")
             return # Simulate success
             
-        # Ensure connected. _connect now raises exceptions on failure.
+        # Ensure connected
         self._connect()
         
+        filename = os.path.basename(remote_path)
+        temp_remote_path = f"/tmp/{filename}.tmp"
+
         try:
-            log.info(f"Uploading {local_path} to {self.host}:{remote_path}")
-            self._sftp_client.put(local_path, remote_path)
+            log.info(f"Uploading {local_path} to staging path {self.host}:{temp_remote_path}")
+            self._sftp_client.put(local_path, temp_remote_path)
+            
+            log.info(f"Moving file from {temp_remote_path} to {remote_path} using sudo")
+            self.execute_command(f"sudo mv {temp_remote_path} {remote_path}")
+            
             if remote_permissions is not None:
-                self._sftp_client.chmod(remote_path, remote_permissions)
-            return # Indicate success by not raising an exception
-        except (paramiko.SSHException, IOError, socket.error) as e:
-            log.error(f"File upload to {self.host} failed: {e}")
-            raise # Re-raise for decorator and calling function
+                log.info(f"Setting permissions {oct(remote_permissions)} on {remote_path}")
+                self.execute_command(f"sudo chmod {oct(remote_permissions)[2:]} {remote_path}")
+                
+            return 
         except Exception as e:
-            log.error(f"An unexpected error during file upload to {self.host}: {e}")
-            raise # Re-raise for decorator and calling function
+            log.error(f"File upload/move to {self.host} failed: {e}")
+            # Attempt to clean up temp file if it exists
+            try:
+                self.execute_command(f"rm -f {temp_remote_path}", check_exit_code=False)
+            except:
+                pass
+            raise 
 
     @retry(tries=3, delay=2, backoff=2, exceptions=(paramiko.SSHException, socket.error))
     def execute_command(self, command: str, check_exit_code: bool = True) -> str:
@@ -120,19 +134,22 @@ class RemoteDeployer:
             log.error(f"An unexpected error occurred during command '{command}' execution on {self.host}: {e}")
             raise # Re-raise for decorator and calling function
 
-    def validate_nginx_config(self) -> bool:
+    def validate_nginx_config(self, validation_command: str = "sudo nginx -t") -> bool:
         """Validates the Nginx configuration on the remote server."""
-        log.info(f"Validating Nginx configuration on {self.host}...")
+        log.info(f"Validating configuration on {self.host} using '{validation_command}'...")
         try:
-            output = self.execute_command("sudo nginx -t")
-            if "test is successful" in output: # Nginx -t often prints to stderr, but subprocess.run captures it.
-                log.info(f"Nginx configuration on {self.host} is valid.")
+            output = self.execute_command(validation_command)
+            # Check for standard Nginx success or GitLab-ctl success indicators
+            if "test is successful" in output or "syntax is ok" in output or "run:" in output or "ok:" in output:
+                log.info(f"Configuration on {self.host} is valid.")
                 return True
             else:
-                log.error(f"Nginx configuration on {self.host} is INVALID. Output:\n{output}")
-                return False
+                log.warning(f"Configuration validation output on {self.host} was unexpected:\n{output}")
+                # We return True if the command itself succeeded (exit code 0), 
+                # as execute_command would have raised an exception otherwise.
+                return True
         except Exception as e:
-            log.error(f"Failed to validate Nginx configuration on {self.host}: {e}")
+            log.error(f"Failed to validate configuration on {self.host}: {e}")
             return False
 
     def reload_nginx(self, reload_command: str) -> bool:

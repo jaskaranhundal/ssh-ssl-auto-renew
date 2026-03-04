@@ -217,3 +217,7 @@ _bmad-output/
 # Use the .example files as templates.
 cert_automation/config/domains.yaml
 cert_automation/config/servers.yaml
+reports/
+logs/
+config/domains_otc_only.yaml
+

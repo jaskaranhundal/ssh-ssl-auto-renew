@@ -5,12 +5,13 @@ import socket
 import ipaddress
 import argparse
 from datetime import datetime
-from typing import Tuple
+from typing import Tuple, List
 
 from cert_manager import is_certificate_due_for_renewal
 from acme_client_wrapper import issue_certificate
 from config_loader import load_yaml_config
 from remote_deployer import RemoteDeployer
+from otc_elb_client import OTCELBClient
 from health_checker import HealthChecker
 from logger import setup_logging
 from report_generator import generate_markdown_report
@@ -49,6 +50,75 @@ def get_wildcard_domain(domain: str) -> str:
         wildcard_base = domain
     return f"*.{wildcard_base}"
 
+def deploy_to_otc_elb(elb_config: dict, domain_name: str, local_cert_path: str, local_key_path: str, global_config: dict) -> List[dict]:
+    """
+    Uploads certificate to OTC Console and updates all configured listeners.
+    """
+    dry_run = global_config.get("dry_run", False)
+    deployment_results = []
+    
+    listeners = elb_config.get("listeners", [])
+    if not listeners:
+        return [{"server": "OTC ELB", "success": True, "message": "No listeners configured for OTC ELB."}]
+
+    log.info(f"--- Starting deployment to OTC ELB for {domain_name} ---")
+    
+    if dry_run:
+        for listener in listeners:
+            log.info(f"[DRY RUN] Would update OTC ELB listener {listener.get('name')} ({listener.get('id')})")
+            deployment_results.append({
+                "server": f"OTC ELB: {listener.get('name')}",
+                "success": True,
+                "message": "[DRY RUN] Simulated success."
+            })
+        return deployment_results
+
+    try:
+        # Initialize OTC Client
+        client = OTCELBClient(
+            auth_url=os.getenv("OS_AUTH_URL"),
+            username=os.getenv("OS_USERNAME"),
+            password=os.getenv("OS_PASSWORD"),
+            domain_name=os.getenv("OS_USER_DOMAIN_NAME"),
+            project_id=os.getenv("OS_PROJECT_ID")
+        )
+
+        with open(local_cert_path, 'r') as f:
+            cert_content = f.read()
+        with open(local_key_path, 'r') as f:
+            key_content = f.read()
+
+        # 1. Upload new cert
+        cert_name = f"{domain_name.replace('*', 'wildcard')}-{datetime.now().strftime('%Y%m%d')}"
+        new_cert_id = client.upload_certificate(cert_name, cert_content, key_content)
+
+        # 2. Update each listener
+        for listener in listeners:
+            l_name = listener.get("name")
+            l_id = listener.get("id")
+            
+            # Capture old cert ID for optional cleanup later
+            old_cert_id = client.get_listener_current_cert(l_id)
+            
+            success = client.update_listener_cert(l_id, new_cert_id)
+            msg = f"Updated listener {l_name} to new cert {new_cert_id}." if success else f"Failed to update listener {l_name}."
+            
+            deployment_results.append({
+                "server": f"OTC ELB: {l_name}",
+                "success": success,
+                "message": msg
+            })
+            
+            # 3. Optional: Cleanup old cert if it's different and was previously managed
+            if success and old_cert_id and old_cert_id != new_cert_id:
+                log.info(f"Listener {l_name} was previously using cert {old_cert_id}. (Cleanup skip for safety in this version)")
+
+        return deployment_results
+
+    except Exception as e:
+        log.error(f"OTC ELB Deployment FAILED: {e}")
+        return [{"server": "OTC ELB", "success": False, "message": str(e)}]
+
 def deploy_certificate(server_config: dict, domain_name: str, local_cert_path: str, local_key_path: str, dry_run: bool = False) -> Tuple[bool, str]:
     """
     Deploys the new certificate to a single server with a robust, atomic process.
@@ -59,6 +129,7 @@ def deploy_certificate(server_config: dict, domain_name: str, local_cert_path: s
     ssh_key = server_config.get("ssh_key_path")
     remote_cert_path = server_config.get("cert_path")
     reload_command = server_config.get("nginx_reload_command")
+    validation_command = server_config.get("validation_command", "sudo nginx -t") # Optional validation command
     server_name = server_config.get("name", host) # Use name if available, else host
 
     if not all([host, user, ssh_key, remote_cert_path, reload_command]):
@@ -73,7 +144,7 @@ def deploy_certificate(server_config: dict, domain_name: str, local_cert_path: s
         # Define remote paths
         remote_fullchain_path = os.path.join(remote_cert_path, "fullchain.pem")
         remote_key_path = os.path.join(remote_cert_path, "privkey.pem")
-        
+
         # Backup paths
         backup_fullchain_path = remote_fullchain_path + ".bak"
         backup_key_path = remote_key_path + ".bak"
@@ -81,15 +152,16 @@ def deploy_certificate(server_config: dict, domain_name: str, local_cert_path: s
         # 1. Backup existing certificates on the remote server
         try:
             deployer.execute_command(f"sudo cp {remote_fullchain_path} {backup_fullchain_path}", check_exit_code=False)
+            deployer.execute_command(f"sudo cp {remote_key_path} {backup_key_path}", check_exit_code=False)
         except Exception as e:
             log.warning(f"Backup on {server_name} failed (might be first deploy, or certs missing): {e}")
-        
+
         # 2. Upload new certificates
         deployer.upload_file(local_cert_path, remote_fullchain_path) # Now raises exception on failure
         deployer.upload_file(local_key_path, remote_key_path) # Now raises exception on failure
 
         # 3. Validate Nginx config with new certs
-        deployer.validate_nginx_config() # Now raises exception on failure
+        deployer.validate_nginx_config(validation_command) # Now raises exception on failure
 
         # 4. Gracefully reload Nginx
         deployer.reload_nginx(reload_command) # Now raises exception on failure
@@ -103,10 +175,10 @@ def deploy_certificate(server_config: dict, domain_name: str, local_cert_path: s
         log.info(f"Deployment to {server_name} successful and health checks passed!")
         # 6. Clean up backups on success
         try:
-            deployer.execute_command(f"sudo rm {backup_fullchain_path} {backup_key_path}")
+            deployer.execute_command(f"sudo rm -f {backup_fullchain_path} {backup_key_path}")
         except Exception as e:
             log.warning(f"Failed to clean up backup files on {server_name}: {e}")
-            
+
         return True, f"Deployment to {server_name} successful."
 
     except Exception as e:
@@ -132,32 +204,37 @@ def process_domain(domain_info: dict, servers_map: dict, results: dict):
     """
     target_domain = domain_info.get("domain")
     dry_run = results["global_config"].get("dry_run", False)
-    
+    force_renewal = results["global_config"].get("force_renewal", False)
+
     if not target_domain:
         log.warning("Skipping domain entry with no 'domain' field.")
         results["domains_processed"] += 1 # Still count as processed, even if invalid
         results["failed_renewals"].append({"domain": "N/A", "error": "Domain entry missing 'domain' field."})
         return
-    
+
     results["domains_processed"] += 1
     log.info(f"--- Processing domain: {target_domain} ---")
-    
+
     local_cert_dir = os.path.join(results["global_config"]['cert_base_path'], target_domain)
+    # Ensure local directory exists before issuance
+    os.makedirs(local_cert_dir, exist_ok=True)
+    
     local_cert_path = os.path.join(local_cert_dir, "fullchain.cer")
     local_key_path = os.path.join(local_cert_dir, "domain.key")
 
-    ip_type = get_domain_ip_type(target_domain)
+    # Issue for the exact domain requested, regardless of IP type
     domain_to_issue = target_domain
-    
-    if ip_type == "private":
-        domain_to_issue = get_wildcard_domain(target_domain)
-    
-    if is_certificate_due_for_renewal(local_cert_path, results["global_config"]['renewal_threshold_days']) or dry_run:
-        if dry_run and not is_certificate_due_for_renewal(local_cert_path, results["global_config"]['renewal_threshold_days']):
+
+    is_due = is_certificate_due_for_renewal(local_cert_path, results["global_config"]['renewal_threshold_days'])
+
+    if is_due or force_renewal or dry_run:
+        if force_renewal:
+             log.info(f"Renewal forced for {target_domain}.")
+        elif dry_run and not is_due:
              log.info(f"[DRY RUN] Certificate for {target_domain} is not due, but proceeding for simulation.")
 
         log.info(f"Attempting to issue/renew certificate for {domain_to_issue}...")
-        
+
         domain_result = {
             "domain": target_domain,
             "issue_error": None,
@@ -171,9 +248,11 @@ def process_domain(domain_info: dict, servers_map: dict, results: dict):
                 domain=domain_to_issue,
                 acme_home_dir=results["global_config"]['acme_home_dir'],
                 ionos_api_key=results["global_config"]['ionos_api_key'],
+                ionos_api_secret=results["global_config"]['ionos_api_secret'],
                 email=results["global_config"]['acme_email'],
                 cert_storage_path=local_cert_dir,
-                dry_run=dry_run
+                dry_run=dry_run,
+                force_renewal=force_renewal
             )
             log.info(f"Certificate issuance for {domain_to_issue} successful.")
             issuance_successful = True
@@ -181,36 +260,43 @@ def process_domain(domain_info: dict, servers_map: dict, results: dict):
         except Exception as e:
             domain_result["issue_error"] = str(e)
             log.error(f"An error occurred during certificate issuance for {domain_to_issue}: {e}")
-        
+            if dry_run:
+                log.warning(f"[DRY RUN] Issuance failed, but creating dummy files to continue simulation.")
+                with open(local_cert_path, 'w') as f: f.write("dummy cert")
+                with open(local_key_path, 'w') as f: f.write("dummy key")
+                issuance_successful = True
+
         if issuance_successful:
-            # Deployment to servers
+            # 1. SSH Deployment to servers
             servers_for_domain = domain_info.get("servers", [])
-            
-            if not servers_for_domain:
-                log.warning(f"No servers configured for domain {target_domain}. Certificate issued but no deployment targets.")
-                domain_result["deployment_results"].append({"server": "N/A", "success": True, "message": "No deployment targets configured."})
-            else:
-                for server_name in servers_for_domain:
-                    server_config = servers_map.get(server_name)
-                    if server_config:
-                        deploy_success, deploy_message = deploy_certificate(
-                            server_config, target_domain, local_cert_path, local_key_path, dry_run=dry_run
-                        )
-                        domain_result["deployment_results"].append({
-                            "server": server_name,
-                            "success": deploy_success,
-                            "message": deploy_message
-                        })
-                    else:
-                        error_msg = f"Server '{server_name}' not found in servers.yaml. Cannot deploy."
-                        log.warning(error_msg)
-                        domain_result["deployment_results"].append({
-                            "server": server_name,
-                            "success": False,
-                            "message": error_msg
-                        })
-            
-            # Categorize the domain's overall outcome for deployment
+            for server_name in servers_for_domain:
+                server_config = servers_map.get(server_name)
+                if server_config:
+                    deploy_success, deploy_message = deploy_certificate(
+                        server_config, target_domain, local_cert_path, local_key_path, dry_run=dry_run
+                    )
+                    domain_result["deployment_results"].append({
+                        "server": server_name,
+                        "success": deploy_success,
+                        "message": deploy_message
+                    })
+                else:
+                    error_msg = f"Server '{server_name}' not found in servers.yaml. Cannot deploy."
+                    log.warning(error_msg)
+                    domain_result["deployment_results"].append({
+                        "server": server_name,
+                        "success": False,
+                        "message": error_msg
+                    })
+
+            # 2. Cloud Console Deployment (OTC ELB)
+            if "otc_elb" in domain_info:
+                elb_results = deploy_to_otc_elb(
+                    domain_info["otc_elb"], target_domain, local_cert_path, local_key_path, results["global_config"]
+                )
+                domain_result["deployment_results"].extend(elb_results)
+
+            # Categorize the domain's overall outcome
             all_deployments_successful = all(res["success"] for res in domain_result["deployment_results"])
 
             if domain_result["issue_error"] is None and all_deployments_successful:
@@ -231,17 +317,22 @@ def main():
         action="store_true",
         help="Simulate the renewal and deployment process without making any actual changes."
     )
+    parser.add_argument(
+        "--force",
+        action="store_true",
+        help="Force the renewal of certificates even if they are not yet due."
+    )
     args = parser.parse_args()
 
     # Generate a timestamp for unique log and report file names
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    
+
     # Dynamically determine log file path
     default_log_file = os.path.join("logs", f"renewal_{timestamp}.log")
-    final_log_file_path = os.getenv("LOG_FILE_PATH", default_log_file)
+    final_log_file_path = os.getenv("LOG_FILE_PATH") or default_log_file
     setup_logging(final_log_file_path) # Call setup_logging with the determined path
     log = logging.getLogger(__name__) # Re-get the logger after setup
-    
+
     # Load environment variables after logging setup
     load_dotenv() 
 
@@ -254,7 +345,8 @@ def main():
         "successful_renewals": [],
         "skipped_renewals": [],
         "failed_renewals": [],
-        "dry_run": args.dry_run
+        "dry_run": args.dry_run,
+        "force_renewal": args.force
     }
 
     results["global_config"] = {
@@ -262,21 +354,23 @@ def main():
         "acme_email": os.getenv("ACME_EMAIL"),
         "acme_home_dir": os.getenv("ACME_HOME_DIR", "/tmp/acme_home"),
         "ionos_api_key": os.getenv("IONOS_API_KEY"),
+        "ionos_api_secret": os.getenv("IONOS_API_SECRET"),
         "cert_base_path": os.getenv("CERT_BASE_PATH", "/tmp/certs"),
-        "report_file_path": os.getenv("REPORT_FILE_PATH", os.path.join("reports", f"renewal_report_{timestamp}.md")), # Dynamic report file path
+        "report_file_path": os.getenv("REPORT_FILE_PATH") or os.path.join("reports", f"renewal_report_{timestamp}.md"), # Dynamic report file path
         "log_file_path": final_log_file_path, # Store actual log file path in results
+        "dry_run": args.dry_run,
+        "force_renewal": args.force
     }
-    # Add dry_run from args to global_config for easier access in report_generator
-    results["global_config"]["dry_run"] = args.dry_run
-
     if results["global_config"]["dry_run"]:
         log.info("--- Performing a DRY RUN. No actual changes will be made. ---")
+    if results["global_config"]["force_renewal"]:
+        log.info("--- FORCE RENEWAL active. Certificates will be renewed regardless of expiry. ---")
 
-    if not all([results["global_config"]['acme_email'], results["global_config"]['ionos_api_key']]):
-        log.error("Missing critical environment variables: ACME_EMAIL, IONOS_API_KEY. Aborting.")
+    if not all([results["global_config"]['acme_email'], results["global_config"]['ionos_api_key'], results["global_config"]['ionos_api_secret']]):
+        log.error("Missing critical environment variables: ACME_EMAIL, IONOS_API_KEY, IONOS_API_SECRET. Aborting.")
         return
 
-    log.info("Starting scalable SSL certificate renewal process...")
+    log.info("Starting SSL certificate renewal process...")
 
     domains_config = load_yaml_config("config/domains.yaml")
     servers_config = load_yaml_config("config/servers.yaml")
@@ -284,7 +378,7 @@ def main():
     if not domains_config or not servers_config:
         log.error("Could not load domains.yaml or servers.yaml. Aborting process.")
         return
-    
+
     results["total_domains_configured"] = len(domains_config.get("domains", []))
 
     servers_map = {s['name']: s for s in servers_config.get("servers", [])}
@@ -299,7 +393,7 @@ def main():
     results["duration"] = f"{int(hours)}h {int(minutes)}m {int(seconds)}s"
 
     log.info("All domains processed. Script finished.")
-    
+
     markdown_report_content = generate_markdown_report(results)
     report_file_path = results["global_config"]["report_file_path"]
 
@@ -311,6 +405,6 @@ def main():
         log.info(f"Renewal report saved to: {report_file_path}")
     except IOError as e:
         log.error(f"Failed to write renewal report to {report_file_path}: {e}")
-    
+
 if __name__ == "__main__":
     main()
