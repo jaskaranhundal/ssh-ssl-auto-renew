@@ -1,9 +1,7 @@
 # .gitlab-ci.yml - Automated SSL Certificate Renewal System
 
 variables:
-  # Base image for Python tools
   PYTHON_IMAGE: "python:3.10-slim-buster"
-  # Target SSH hosts for known_hosts population
   TARGET_SSH_HOSTS: "$TARGET_SSH_HOSTS_GITLAB"
 
 stages:
@@ -20,7 +18,6 @@ lint_python:
   script:
     - pip install flake8
     - flake8 cert_automation/ --count --select=E9,F63,F7,F82 --show-source --statistics
-    - flake8 cert_automation/ --count --exit-zero --max-complexity=10 --max-line-length=127 --statistics
   rules:
     - if: '$CI_PIPELINE_SOURCE == "push"'
 
@@ -36,7 +33,6 @@ unit_tests:
     - if: '$CI_PIPELINE_SOURCE == "push"'
 
 # --- Stage: Security ---
-# Software Composition Analysis (SCA) - Check for vulnerable dependencies
 sca_scan:
   stage: security
   image: $PYTHON_IMAGE
@@ -46,7 +42,6 @@ sca_scan:
   rules:
     - if: '$CI_PIPELINE_SOURCE == "push"'
 
-# Static Analysis Security Testing (SAST) - Check for security issues in code
 sast_bandit:
   stage: security
   image: $PYTHON_IMAGE
@@ -56,7 +51,7 @@ sast_bandit:
   rules:
     - if: '$CI_PIPELINE_SOURCE == "push"'
 
-# --- Stage: Build ---
+# --- Stage: Build (Only when code changes) ---
 build_image:
   stage: build
   image: docker:latest
@@ -64,61 +59,44 @@ build_image:
     - docker:dind
   script:
     - docker login -u $CI_REGISTRY_USER -p $CI_REGISTRY_PASSWORD $CI_REGISTRY
-    - docker build -t $CI_REGISTRY_IMAGE:$CI_COMMIT_SHA -t $CI_REGISTRY_IMAGE:latest .
-    - docker push $CI_REGISTRY_IMAGE:$CI_COMMIT_SHA
+    - docker build -t $CI_REGISTRY_IMAGE:latest .
     - docker push $CI_REGISTRY_IMAGE:latest
   rules:
-    - if: '$CI_COMMIT_BRANCH == "main" || $CI_COMMIT_BRANCH == "development" || $CI_COMMIT_BRANCH == "test"'
+    - if: '$CI_COMMIT_BRANCH == "main"'
+      changes:
+        - cert_automation/**/*
+        - Dockerfile
+        - requirements.txt
 
-# --- Stage: Renew (Dry Run on Branch Updates) ---
-branch_dry_run:
-  stage: renew
-  image: $CI_REGISTRY_IMAGE:$CI_COMMIT_SHA
-  before_script:
-    - mkdir -p cert_automation/config
-    - echo "$CI_DOMAINS_YAML" > cert_automation/config/domains.yaml
-    - echo "$CI_SERVERS_YAML" > cert_automation/config/servers.yaml
-    - mkdir -p /root/.ssh && echo "$SSH_PRIVATE_KEY_GITLAB" > /root/.ssh/automation_key && chmod 600 /root/.ssh/automation_key
-    - eval $(ssh-agent -s) && ssh-add /root/.ssh/automation_key
-    - for host in $TARGET_SSH_HOSTS; do ssh-keyscan $host >> ~/.ssh/known_hosts; done
-  script:
-    - echo "Validating configuration via DRY RUN for branch $CI_COMMIT_BRANCH..."
-    - export IONOS_API_KEY="$IONOS_API_KEY_GITLAB"
-    - export IONOS_API_SECRET="$IONOS_API_SECRET_GITLAB"
-    - export ACME_EMAIL="$ACME_EMAIL_GITLAB"
-    - export ACME_SH_COMMAND="/home/certuser/.acme.sh/acme.sh"
-    - cd cert_automation
-    - python3 main.py --dry-run --force
-  rules:
-    - if: '$CI_PIPELINE_SOURCE == "schedule"'
-      when: never
-    - if: '$CI_COMMIT_BRANCH == "main" || $CI_COMMIT_BRANCH == "development" || $CI_COMMIT_BRANCH == "test"'
-
-# --- Stage: Renew (Actual Renewal on Schedule Only) ---
+# --- Stage: Renew (Weekly Schedule Pulse) ---
 scheduled_renewal:
   stage: renew
   image: $CI_REGISTRY_IMAGE:latest
   before_script:
-    - mkdir -p cert_automation/config
-    - echo "$CI_DOMAINS_YAML" > cert_automation/config/domains.yaml
-    - echo "$CI_SERVERS_YAML" > cert_automation/config/servers.yaml
-    - mkdir -p /root/.ssh && echo "$SSH_PRIVATE_KEY_GITLAB" > /root/.ssh/automation_key && chmod 600 /root/.ssh/automation_key
+    # Ensure config directory exists in the container
+    - mkdir -p /app/config
+    # Use the GitLab File variables to create the actual config files
+    - cp "$CI_DOMAINS_YAML" /app/config/domains.yaml
+    - cp "$CI_SERVERS_YAML" /app/config/servers.yaml
+    # Setup SSH Key
+    - mkdir -p /root/.ssh && cp "$SSH_PRIVATE_KEY_GITLAB" /root/.ssh/automation_key && chmod 600 /root/.ssh/automation_key
     - eval $(ssh-agent -s) && ssh-add /root/.ssh/automation_key
     - for host in $TARGET_SSH_HOSTS; do ssh-keyscan $host >> ~/.ssh/known_hosts; done
   script:
-    - echo "Executing SCHEDULED certificate renewal..."
+    - echo "Starting weekly SSL check (Threshold: $RENEWAL_THRESHOLD_DAYS days)..."
     - export IONOS_API_KEY="$IONOS_API_KEY_GITLAB"
     - export IONOS_API_SECRET="$IONOS_API_SECRET_GITLAB"
     - export ACME_EMAIL="$ACME_EMAIL_GITLAB"
     - export ACME_SH_COMMAND="/home/certuser/.acme.sh/acme.sh"
-    - cd cert_automation
-    - python3 main.py --force
+    # Execute the script (it will automatically exit if no cert is < 40 days)
+    - cd /app
+    - python3 main.py
   artifacts:
     paths:
-      - cert_automation/reports/*.md
-      - cert_automation/logs/*.log
+      - /app/reports/*.md
+      - /app/logs/*.log
     expire_in: 1 week
   rules:
     - if: '$CI_PIPELINE_SOURCE == "schedule"'
     - if: '$CI_COMMIT_BRANCH == "main"'
-      when: manual # Allow manual override on main only
+      when: manual # Allow manual trigger for testing
