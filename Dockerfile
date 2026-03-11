@@ -1,12 +1,13 @@
 # Dockerfile for the Automated SSL Certificate Renewal System
 # This file packages the application and its dependencies into a container image.
 
-# Use a slim Python base image
-FROM python:3.10-slim-buster
+# Use a slim Python base image (Updated to Bookworm for repository support)
+FROM python:3.10-slim-bookworm
 
-# Create a non-root user
+# Create a non-root user and group
 ARG UID=1000
-RUN adduser --system --uid ${UID} certuser
+RUN addgroup --system --gid ${UID} certuser && \
+    adduser --system --uid ${UID} --ingroup certuser certuser
 
 # Set working directory inside the container
 WORKDIR /app
@@ -25,8 +26,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     # Clean up apt cache
     && rm -rf /var/lib/apt/lists/*
 
-# Install acme.sh for the certuser
-RUN curl https://get.acme.sh | sh -s -- --install --home /home/certuser/.acme.sh \
+# Pre-create acme directory and install acme.sh
+RUN mkdir -p /home/certuser/.acme.sh && \
+    curl https://get.acme.sh | sh -s -- --install --home /home/certuser/.acme.sh \
     --accountemail "jaskarn.singh@lindera.de"
 
 # Add acme.sh to PATH
@@ -44,9 +46,9 @@ RUN pip install --no-cache-dir -r requirements.txt
 COPY cert_automation/ .
 
 # Ensure necessary directories exist and have correct ownership
-RUN mkdir -p /app/logs /app/reports /app/certs \
-    && chown -R certuser:certuser /app \
-    && chown -R certuser:certuser /home/certuser/.acme.sh
+RUN mkdir -p /app/logs /app/reports /app/certs && \
+    chown -R certuser:certuser /app && \
+    chown -R certuser:certuser /home/certuser
 
 # Set environment variables
 ENV CERT_BASE_PATH="/app/certs"

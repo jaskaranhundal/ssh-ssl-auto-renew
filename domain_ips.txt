@@ -1,0 +1,24 @@
+admin-dev.lindera.de: 10.0.0.15
+admin-test.lindera.de: 10.0.0.10
+admin.lindera.de: 10.0.0.9
+assests.lindera.de: 10.0.0.14
+auth.lindera.de: otc cloud 
+backend.lindera.de: otc cloud 
+cdss.lindera.de: 10.0.0.9
+companionapp.lindera.de: 10.0.0.14
+dashboard-dev.lindera.de: 10.0.0.15
+dashboard-test.lindera.de: 10.0.0.10
+dashboard.lindera.de: 10.0.0.9 
+*.lindera.de: also we have the on the otc as the *lindera.de as wild card cert 
+errors.lindera.de: 10.0.0.3
+fileserver.lindera.de: 10.0.0.14
+gitlab.lindera.de: 10.0.0.2.  # here we have the gitlab 
+kpi-dev.lindera.de: 10.0.0.15
+kpi-test.lindera.de: 10.0.0.10
+kpi.lindera.de: 10.0.0.9
+lgait-ch.lindera.de: 10.0.0.9
+lindera.de: Not in scope
+mail-dev.lindera.de: 10.0.0.8
+rabbitmq-test.lindera.de: 10.0.0.8
+rabbitmq.lindera.de: 10.0.0.8
+watch.lindera.de.: 10.0.0.13

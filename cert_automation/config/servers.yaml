@@ -1,0 +1,175 @@
+servers:
+  # --- Host 10.0.0.9 (Dashboards / Prod) ---
+  - name: srv-prod-admin
+    host: 10.0.0.9
+    user: jaskarn_singh
+    ssh_key_path: "/Users/jaskarn.singh/.ssh/id_rsa"
+    nginx_reload_command: "sudo systemctl reload nginx"
+    cert_path: "/opt/prod/admin/ssl/"
+
+  - name: srv-prod-dash
+    host: 10.0.0.9
+    user: jaskarn_singh
+    ssh_key_path: "/Users/jaskarn.singh/.ssh/id_rsa"
+    nginx_reload_command: "sudo systemctl reload nginx"
+    cert_path: "/opt/prod/dash/ssl/"
+
+  - name: srv-prod-kpi
+    host: 10.0.0.9
+    user: jaskarn_singh
+    ssh_key_path: "/Users/jaskarn.singh/.ssh/id_rsa"
+    nginx_reload_command: "sudo systemctl reload nginx"
+    cert_path: "/opt/prod/kpi-dash/ssl/"
+
+  - name: srv-prod-mcore
+    host: 10.0.0.9
+    user: jaskarn_singh
+    ssh_key_path: "/Users/jaskarn.singh/.ssh/id_rsa"
+    nginx_reload_command: "sudo systemctl reload nginx"
+    cert_path: "/opt/prod/mcore/ssl/"
+
+  - name: srv-prod-cdss
+    host: 10.0.0.9
+    user: jaskarn_singh
+    ssh_key_path: "/Users/jaskarn.singh/.ssh/id_rsa"
+    nginx_reload_command: "sudo systemctl reload nginx"
+    cert_path: "/opt/prod/cdss/ssl/"
+
+  - name: srv-prod-cpdai
+    host: 10.0.0.9
+    user: jaskarn_singh
+    ssh_key_path: "/Users/jaskarn.singh/.ssh/id_rsa"
+    nginx_reload_command: "sudo systemctl reload nginx"
+    cert_path: "/opt/prod/cpdai/ssl/"
+
+  - name: srv-prod-lgait
+    host: 10.0.0.9
+    user: jaskarn_singh
+    ssh_key_path: "/Users/jaskarn.singh/.ssh/id_rsa"
+    nginx_reload_command: "sudo systemctl reload nginx"
+    cert_path: "/opt/prod/lgait-ch/ssl/"
+
+  # --- Host 10.0.0.15 (Dev) ---
+  - name: srv-dev-admin
+    host: 10.0.0.15
+    user: jaskarn_singh
+    ssh_key_path: "/Users/jaskarn.singh/.ssh/id_rsa"
+    nginx_reload_command: "sudo systemctl reload nginx"
+    cert_path: "/opt/dev/admin/ssl/"
+
+  - name: srv-dev-dash
+    host: 10.0.0.15
+    user: jaskarn_singh
+    ssh_key_path: "/Users/jaskarn.singh/.ssh/id_rsa"
+    nginx_reload_command: "sudo systemctl reload nginx"
+    cert_path: "/opt/dev/dash/ssl/"
+
+  - name: srv-dev-kpi
+    host: 10.0.0.15
+    user: jaskarn_singh
+    ssh_key_path: "/Users/jaskarn.singh/.ssh/id_rsa"
+    nginx_reload_command: "sudo systemctl reload nginx"
+    cert_path: "/opt/dev/kpi-dash/ssl/"
+
+  - name: srv-dev-kpibackend
+    host: 10.0.0.15
+    user: jaskarn_singh
+    ssh_key_path: "/Users/jaskarn.singh/.ssh/id_rsa"
+    nginx_reload_command: "sudo systemctl reload nginx"
+    cert_path: "/opt/dev/kpi-backend/ssl/"
+
+  - name: srv-dev-mcore
+    host: 10.0.0.15
+    user: jaskarn_singh
+    ssh_key_path: "/Users/jaskarn.singh/.ssh/id_rsa"
+    nginx_reload_command: "sudo systemctl reload nginx"
+    cert_path: "/opt/dev/mcore/ssl/"
+
+  # --- Host 10.0.0.10 (Test) ---
+  - name: srv-test-admin
+    host: 10.0.0.10
+    user: jaskarn_singh
+    ssh_key_path: "/Users/jaskarn.singh/.ssh/id_rsa"
+    nginx_reload_command: "sudo systemctl reload nginx"
+    cert_path: "/opt/test/admin/ssl/"
+
+  - name: srv-test-dash
+    host: 10.0.0.10
+    user: jaskarn_singh
+    ssh_key_path: "/Users/jaskarn.singh/.ssh/id_rsa"
+    nginx_reload_command: "sudo systemctl reload nginx"
+    cert_path: "/opt/test/dash/ssl/"
+
+  - name: srv-test-kpi
+    host: 10.0.0.10
+    user: jaskarn_singh
+    ssh_key_path: "/Users/jaskarn.singh/.ssh/id_rsa"
+    nginx_reload_command: "sudo systemctl reload nginx"
+    cert_path: "/opt/test/kpi-dash/ssl/"
+
+  # --- Host 10.0.0.14 (Assets / Companion / Files) ---
+  - name: srv-assets
+    host: 10.0.0.14
+    user: jaskarn_singh
+    ssh_key_path: "/Users/jaskarn.singh/.ssh/id_rsa"
+    nginx_reload_command: "sudo systemctl reload nginx"
+    cert_path: "/opt/prod/assests/ssl/"
+
+  - name: srv-companion
+    host: 10.0.0.14
+    user: jaskarn_singh
+    ssh_key_path: "/Users/jaskarn.singh/.ssh/id_rsa"
+    nginx_reload_command: "sudo systemctl reload nginx"
+    cert_path: "/opt/prod/companionapp/ssl/"
+
+  - name: srv-fileserver
+    host: 10.0.0.14
+    user: jaskarn_singh
+    ssh_key_path: "/Users/jaskarn.singh/.ssh/id_rsa"
+    nginx_reload_command: "sudo systemctl reload nginx"
+    cert_path: "/opt/prod/file_server/ssl/"
+
+  # --- Host 10.0.0.8 (Rabbit / Mail) ---
+  - name: srv-rabbitmq
+    host: 10.0.0.8
+    user: jaskarn_singh
+    ssh_key_path: "/Users/jaskarn.singh/.ssh/id_rsa"
+    nginx_reload_command: "sudo systemctl reload nginx"
+    cert_path: "/opt/prod/rabbitmq/ssl/"
+
+  - name: srv-rabbitmq-test
+    host: 10.0.0.8
+    user: jaskarn_singh
+    ssh_key_path: "/Users/jaskarn.singh/.ssh/id_rsa"
+    nginx_reload_command: "sudo systemctl reload nginx"
+    cert_path: "/opt/prod/rabbitmq-test-dev/ssl/"
+
+  - name: srv-mail-dev
+    host: 10.0.0.8
+    user: jaskarn_singh
+    ssh_key_path: "/Users/jaskarn.singh/.ssh/id_rsa"
+    nginx_reload_command: "sudo systemctl reload nginx"
+    cert_path: "/opt/prod/mail-dev/ssl/"
+
+  # --- Other Internal ---
+  - name: srv-watch
+    host: 10.0.0.13
+    user: jaskarn_singh
+    ssh_key_path: "/Users/jaskarn.singh/.ssh/id_rsa"
+    nginx_reload_command: "sudo systemctl reload nginx"
+    cert_path: "/opt/containers/prometheus-grafana/grafana/ssl/"
+
+  - name: srv-errors
+    host: 10.0.0.3
+    user: jaskarn_singh
+    ssh_key_path: "/Users/jaskarn.singh/.ssh/id_rsa"
+    nginx_reload_command: "sudo systemctl reload nginx"
+    cert_path: "/etc/letsencrypt/live/errors.lindera.de/"
+
+  - name: srv-gitlab
+    host: 10.0.0.2
+    user: jaskarn_singh
+    ssh_key_path: "/Users/jaskarn.singh/.ssh/id_rsa"
+    validation_command: "sudo gitlab-ctl status nginx"
+    nginx_reload_command: "sudo gitlab-ctl hup nginx"
+    cert_path: "/etc/letsencrypt/live/tools.lindera.de/"

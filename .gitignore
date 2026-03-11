@@ -211,13 +211,3 @@ __marimo__/
 _bmad/
 _bmad-output/
 .claude/
-
-# Custom configuration files
-# These files contain sensitive information and should not be committed to the repository.
-# Use the .example files as templates.
-cert_automation/config/domains.yaml
-cert_automation/config/servers.yaml
-reports/
-logs/
-config/domains_otc_only.yaml
-

@@ -3,6 +3,8 @@
 variables:
   PYTHON_IMAGE: "python:3.10-slim-buster"
   TARGET_SSH_HOSTS: "$TARGET_SSH_HOSTS_GITLAB"
+  # Use your provided registry variables
+  DOCKER_IMAGE: "$CI_REGISTRY_IMAGE" 
 
 stages:
   - lint
@@ -51,34 +53,41 @@ sast_bandit:
   rules:
     - if: '$CI_PIPELINE_SOURCE == "push"'
 
-# --- Stage: Build (Only when code changes) ---
-build_image:
+# --- Stage: Build (Updated with your custom logic) ---
+build:
   stage: build
-  image: docker:latest
+  image: docker:28.1.1
   services:
     - docker:dind
+  only:
+    - master
+    - main
+    - /^release-CRL-.*/
+    - development
+    - development-crl-2024-07
   script:
-    - docker login -u $CI_REGISTRY_USER -p $CI_REGISTRY_PASSWORD $CI_REGISTRY
-    - docker build -t $CI_REGISTRY_IMAGE:latest .
-    - docker push $CI_REGISTRY_IMAGE:latest
-  rules:
-    - if: '$CI_COMMIT_BRANCH == "main"'
-      changes:
-        - cert_automation/**/*
-        - Dockerfile
-        - requirements.txt
+    - docker login -u $DOCKER_REGISTRY_USER -p $DOCKER_REGISTRY_PASSWORD $DOCKER_REGISTRY
+    - docker pull $DOCKER_IMAGE:$CI_COMMIT_REF_SLUG || true
+    - >
+      docker build
+      --cache-from $DOCKER_IMAGE:$CI_COMMIT_REF_SLUG
+      --build-arg DEPLOYMENT_BRANCH=$CI_COMMIT_BRANCH
+      --tag $DOCKER_IMAGE:$CI_COMMIT_SHORT_SHA
+      --tag $DOCKER_IMAGE:$CI_COMMIT_REF_SLUG
+      --tag $DOCKER_IMAGE:latest
+      .
+    - docker push $DOCKER_IMAGE:$CI_COMMIT_SHORT_SHA
+    - docker push $DOCKER_IMAGE:$CI_COMMIT_REF_SLUG
+    - docker push $DOCKER_IMAGE:latest
 
 # --- Stage: Renew (Weekly Schedule Pulse) ---
 scheduled_renewal:
   stage: renew
-  image: $CI_REGISTRY_IMAGE:latest
+  image: $DOCKER_IMAGE:latest
   before_script:
-    # Ensure config directory exists in the container
     - mkdir -p /app/config
-    # Use the GitLab File variables to create the actual config files
     - cp "$CI_DOMAINS_YAML" /app/config/domains.yaml
     - cp "$CI_SERVERS_YAML" /app/config/servers.yaml
-    # Setup SSH Key
     - mkdir -p /root/.ssh && cp "$SSH_PRIVATE_KEY_GITLAB" /root/.ssh/automation_key && chmod 600 /root/.ssh/automation_key
     - eval $(ssh-agent -s) && ssh-add /root/.ssh/automation_key
     - for host in $TARGET_SSH_HOSTS; do ssh-keyscan $host >> ~/.ssh/known_hosts; done
@@ -88,7 +97,6 @@ scheduled_renewal:
     - export IONOS_API_SECRET="$IONOS_API_SECRET_GITLAB"
     - export ACME_EMAIL="$ACME_EMAIL_GITLAB"
     - export ACME_SH_COMMAND="/home/certuser/.acme.sh/acme.sh"
-    # Execute the script (it will automatically exit if no cert is < 40 days)
     - cd /app
     - python3 main.py
   artifacts:
@@ -98,5 +106,5 @@ scheduled_renewal:
     expire_in: 1 week
   rules:
     - if: '$CI_PIPELINE_SOURCE == "schedule"'
-    - if: '$CI_COMMIT_BRANCH == "main"'
-      when: manual # Allow manual trigger for testing
+    - if: '$CI_COMMIT_BRANCH == "main" || $CI_COMMIT_BRANCH == "master"'
+      when: manual

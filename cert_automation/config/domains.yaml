@@ -1,0 +1,62 @@
+# domains.yaml configuration
+# Maps domains to the servers where their certificates should be deployed.
+
+domains:
+  - domain: "admin.lindera.de"
+    servers: [srv-prod-admin]
+  - domain: "dashboard.lindera.de"
+    servers: [srv-prod-dash]
+  - domain: "kpi.lindera.de"
+    servers: [srv-prod-kpi]
+  - domain: "cdss.lindera.de"
+    servers: [srv-prod-cdss]
+  - domain: "cpdai.lindera.de"
+    servers: [srv-prod-cpdai]
+  - domain: "lgait-ch.lindera.de"
+    servers: [srv-prod-lgait]
+
+  - domain: "admin-dev.lindera.de"
+    servers: [srv-dev-admin]
+  - domain: "dashboard-dev.lindera.de"
+    servers: [srv-dev-dash]
+  - domain: "kpi-dev.lindera.de"
+    servers: [srv-dev-kpi]
+  - domain: "kpi-backend-dev.lindera.de"
+    servers: [srv-dev-kpibackend]
+
+  - domain: "admin-test.lindera.de"
+    servers: [srv-test-admin]
+  - domain: "dashboard-test.lindera.de"
+    servers: [srv-test-dash]
+  - domain: "kpi-test.lindera.de"
+    servers: [srv-test-kpi]
+
+  - domain: "assets.lindera.de"
+    servers: [srv-assets]
+  - domain: "companionapp.lindera.de"
+    servers: [srv-companion]
+  - domain: "fileserver.lindera.de"
+    servers: [srv-fileserver]
+
+  - domain: "rabbitmq.lindera.de"
+    servers: [srv-rabbitmq]
+  - domain: "rabbitmq-test.lindera.de"
+    servers: [srv-rabbitmq-test]
+  - domain: "mail-dev.lindera.de"
+    servers: [srv-mail-dev]
+
+  - domain: "errors.lindera.de"
+    servers: [srv-errors]
+  - domain: "tools.lindera.de"
+    servers: [srv-gitlab]
+  - domain: "gitlab.lindera.de"
+    servers: [srv-gitlab]
+
+  # --- Wildcard handling (OTC ELB + Shared internal paths) ---
+  - domain: "*.lindera.de"
+    servers:
+      - srv-watch
+    otc_elb:
+      listeners:
+        - name: "elb-lindera-listener"
+          id: "7a3ab959b5f6420391032b94a6a956d7"

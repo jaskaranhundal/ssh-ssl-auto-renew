@@ -1,4 +1,4 @@
-# Example servers.yaml configuration (S-201)
+o# Example servers.yaml configuration (S-201)
 # Defines the target servers where certificates will be deployed.
 
 servers:
