@@ -9,6 +9,7 @@ stages:
   - lint
   - test
   - security
+  - dry-run
   - build
   - renew
 
@@ -52,6 +53,46 @@ sast_bandit:
   rules:
     - if: '$CI_PIPELINE_SOURCE == "push"'
 
+# --- Stage: Dry-Run Validation ---
+dry_run_validation:
+  stage: dry-run
+  image: $PYTHON_IMAGE
+  before_script:
+    - pip install -r cert_automation/requirements.txt
+    - export PYTHONPATH=$PYTHONPATH:$(pwd)/cert_automation
+    # Inject real config files if CI file-variables are set, else fall back to
+    # committed defaults (which is fine — dry-run makes no real API calls).
+    - mkdir -p cert_automation/config
+    - |
+      if [ -n "$CI_DOMAINS_YAML" ]; then
+        cp $CI_DOMAINS_YAML cert_automation/config/domains.yaml
+      fi
+    - |
+      if [ -n "$CI_SERVERS_YAML" ]; then
+        cp $CI_SERVERS_YAML cert_automation/config/servers.yaml
+      fi
+  script:
+    # Placeholder values satisfy the early env-var check; --dry-run
+    # never calls the real ACME or IONOS APIs.
+    - export ACME_EMAIL="${ACME_EMAIL:-ci-dryrun@example.com}"
+    - export IONOS_API_KEY="${IONOS_API_KEY:-dryrun-placeholder}"
+    - export IONOS_API_SECRET="${IONOS_API_SECRET:-dryrun-placeholder}"
+    - export CERT_BASE_PATH="$(pwd)/.certs"
+    - export ACME_HOME_DIR="$(pwd)/.acme_home"
+    - export REPORT_FILE_PATH="reports/dry_run_report.md"
+    - mkdir -p reports
+    - echo "--- Running cert_automation in DRY-RUN mode ---"
+    - python3 cert_automation/main.py --dry-run
+    - echo "--- Dry-run complete. Report:"
+    - cat reports/dry_run_report.md
+  artifacts:
+    name: "dry-run-report-$CI_COMMIT_SHORT_SHA"
+    paths:
+      - reports/dry_run_report.md
+    expire_in: 1 day
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "push"'
+
 # --- Stage: Build ---
 build:
   stage: build
@@ -63,7 +104,6 @@ build:
     - main
     - /^release-CRL-.*/
     - development
-    - development-crl-2024-07
   script:
     - docker login -u $DOCKER_REGISTRY_USER -p $DOCKER_REGISTRY_PASSWORD $DOCKER_REGISTRY
     - docker pull "$DOCKER_IMAGE:$CI_COMMIT_REF_SLUG" || true
