@@ -3,7 +3,8 @@
 variables:
   PYTHON_IMAGE: "python:3.10-slim-buster"
   TARGET_SSH_HOSTS: "$TARGET_SSH_HOSTS_GITLAB"
-  DOCKER_IMAGE: "$CI_REGISTRY_IMAGE" 
+  # If CI_REGISTRY_IMAGE is empty (GitLab registry disabled), fallback to generic registry
+  DOCKER_IMAGE: "${CI_REGISTRY_IMAGE:-$DOCKER_REGISTRY/lindera/auto_ssl_cert_genration}" 
 
 stages:
   - lint
