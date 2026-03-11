@@ -39,7 +39,7 @@ sca_scan:
   image: $PYTHON_IMAGE
   script:
     - pip install safety
-    - safety check -r cert_automation/requirements.txt
+    - safety scan -r cert_automation/requirements.txt --output text
   rules:
     - if: '$CI_PIPELINE_SOURCE == "push"'
 
