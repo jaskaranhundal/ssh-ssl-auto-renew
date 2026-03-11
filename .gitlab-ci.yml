@@ -79,10 +79,11 @@ dry_run_validation:
     - export IONOS_API_SECRET="${IONOS_API_SECRET:-dryrun-placeholder}"
     - export CERT_BASE_PATH="$(pwd)/.certs"
     - export ACME_HOME_DIR="$(pwd)/.acme_home"
-    - export REPORT_FILE_PATH="reports/dry_run_report.md"
+    - export REPORT_FILE_PATH="$(pwd)/cert_automation/reports/dry_run_report.md"
+    - cd cert_automation
     - mkdir -p reports
     - echo "--- Running cert_automation in DRY-RUN mode ---"
-    - python3 cert_automation/main.py --dry-run
+    - python3 main.py --dry-run
     - echo "--- Dry-run complete. Report:"
     - cat reports/dry_run_report.md
   artifacts:
