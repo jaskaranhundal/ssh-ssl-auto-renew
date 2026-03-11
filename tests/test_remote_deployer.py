@@ -62,10 +62,16 @@ def test_upload_file_success(deployer, mock_paramiko):
     
     deployer.upload_file("local/path", "remote/path")
     
-    # Check that sftp.put was called with the staging path
-    mock_sftp_client.put.assert_called_once_with("local/path", "/tmp/path.tmp")
-    # Check that the move command was called
-    mock_ssh_client.exec_command.assert_any_call("sudo mv /tmp/path.tmp remote/path")
+    # The staging path is now uuid-based so we can't assert the exact string —
+    # capture the actual call and verify the path pattern instead.
+    put_call_args = mock_sftp_client.put.call_args
+    assert put_call_args is not None, "sftp.put was never called"
+    actual_local, actual_temp_path = put_call_args[0]
+    assert actual_local == "local/path"
+    assert actual_temp_path.startswith("/tmp/")
+    assert actual_temp_path.endswith("_path.tmp")
+    # Check that the move command was called with the same temp path
+    mock_ssh_client.exec_command.assert_any_call(f"sudo mv {actual_temp_path} remote/path")
 
 def test_execute_command_success(deployer, mock_paramiko):
     """Test successful command execution."""
