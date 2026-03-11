@@ -140,19 +140,7 @@ scheduled_renewal:
     - chmod 600 /root/.ssh/automation_key
   script:
     - echo "Starting weekly SSL check (Threshold: $RENEWAL_THRESHOLD_DAYS days)..."
-    - >
-      docker run --rm
-      -v $(pwd)/config:/app/config
-      -v /root/.ssh:/root/.ssh
-      -v $(pwd)/reports:/app/reports
-      -v $(pwd)/logs:/app/logs
-      -e IONOS_API_KEY="$IONOS_API_KEY_GITLAB"
-      -e IONOS_API_SECRET="$IONOS_API_SECRET_GITLAB"
-      -e ACME_EMAIL="$ACME_EMAIL_GITLAB"
-      -e ACME_SH_COMMAND="/home/certuser/.acme.sh/acme.sh"
-      -e SSH_KEY_PATH="/root/.ssh/automation_key"
-      -e SSH_USER="$SSH_USER"
-      "$DOCKER_IMAGE:latest" python3 main.py
+    - "docker run --rm -v $(pwd)/config:/app/config -v /root/.ssh:/root/.ssh -v $(pwd)/reports:/app/reports -v $(pwd)/logs:/app/logs -e IONOS_API_KEY=\"$IONOS_API_KEY_GITLAB\" -e IONOS_API_SECRET=\"$IONOS_API_SECRET_GITLAB\" -e ACME_EMAIL=\"$ACME_EMAIL_GITLAB\" -e ACME_SH_COMMAND=\"/home/certuser/.acme.sh/acme.sh\" -e SSH_KEY_PATH=\"/root/.ssh/automation_key\" -e SSH_USER=\"$SSH_USER\" \"$DOCKER_IMAGE:latest\" python3 main.py"
   artifacts:
     paths:
       - reports/*.md
