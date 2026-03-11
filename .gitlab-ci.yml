@@ -89,7 +89,7 @@ dry_run_validation:
   artifacts:
     name: "dry-run-report-$CI_COMMIT_SHORT_SHA"
     paths:
-      - reports/dry_run_report.md
+      - cert_automation/reports/dry_run_report.md
     expire_in: 1 day
   rules:
     - if: '$CI_PIPELINE_SOURCE == "push"'
