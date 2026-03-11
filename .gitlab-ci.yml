@@ -124,34 +124,39 @@ build:
 # --- Stage: Renew (Weekly Schedule Pulse) ---
 scheduled_renewal:
   stage: renew
-  # Fall back to external registry because CI_REGISTRY_IMAGE is empty
-  image: "$DOCKER_REGISTRY/lindera/auto_ssl_cert_genration:latest"
+  image: docker:28.1.1
+  services:
+    - docker:dind
   before_script:
-    - "mkdir -p /app/config"
-    - "cp $CI_DOMAINS_YAML /app/config/domains.yaml"
-    - "cp $CI_SERVERS_YAML /app/config/servers.yaml"
-    - "mkdir -p /root/.ssh"
-    - "cp $SSH_PRIVATE_KEY_GITLAB /root/.ssh/automation_key"
-    - "chmod 600 /root/.ssh/automation_key"
-    - "eval $(ssh-agent -s)"
-    - "ssh-add /root/.ssh/automation_key"
-    - "for host in $TARGET_SSH_HOSTS; do ssh-keyscan $host >> ~/.ssh/known_hosts; done"
+    - docker login -u $DOCKER_REGISTRY_USER -p $DOCKER_REGISTRY_PASSWORD $DOCKER_REGISTRY
+    - export DOCKER_IMAGE="${CI_REGISTRY_IMAGE:-$DOCKER_REGISTRY/lindera/auto_ssl_cert_genration}"
+    - docker pull "$DOCKER_IMAGE:latest"
+    # Prepare local mounts for the container run
+    - mkdir -p $(pwd)/config
+    - cp $CI_DOMAINS_YAML $(pwd)/config/domains.yaml
+    - cp $CI_SERVERS_YAML $(pwd)/config/servers.yaml
+    - mkdir -p /root/.ssh
+    - cp $SSH_PRIVATE_KEY_GITLAB /root/.ssh/automation_key
+    - chmod 600 /root/.ssh/automation_key
   script:
-    - "echo Starting weekly SSL check (Threshold: $RENEWAL_THRESHOLD_DAYS days)..."
-    - "export IONOS_API_KEY=$IONOS_API_KEY_GITLAB"
-    - "export IONOS_API_SECRET=$IONOS_API_SECRET_GITLAB"
-    - "export ACME_EMAIL=$ACME_EMAIL_GITLAB"
-    - "export ACME_SH_COMMAND=/home/certuser/.acme.sh/acme.sh"
-    # Wire SSH credentials so servers.yaml ${SSH_USER}/${SSH_KEY_PATH} resolve correctly.
-    # SSH_PRIVATE_KEY_GITLAB is already placed at /root/.ssh/automation_key (see before_script).
-    - "export SSH_KEY_PATH=/root/.ssh/automation_key"
-    - "export SSH_USER=$SSH_USER"  # Set SSH_USER in GitLab → Settings → CI/CD → Variables
-    - "cd /app"
-    - "python3 main.py"
+    - echo "Starting weekly SSL check (Threshold: $RENEWAL_THRESHOLD_DAYS days)..."
+    - >
+      docker run --rm
+      -v $(pwd)/config:/app/config
+      -v /root/.ssh:/root/.ssh
+      -v $(pwd)/reports:/app/reports
+      -v $(pwd)/logs:/app/logs
+      -e IONOS_API_KEY="$IONOS_API_KEY_GITLAB"
+      -e IONOS_API_SECRET="$IONOS_API_SECRET_GITLAB"
+      -e ACME_EMAIL="$ACME_EMAIL_GITLAB"
+      -e ACME_SH_COMMAND="/home/certuser/.acme.sh/acme.sh"
+      -e SSH_KEY_PATH="/root/.ssh/automation_key"
+      -e SSH_USER="$SSH_USER"
+      "$DOCKER_IMAGE:latest" python3 main.py
   artifacts:
     paths:
-      - /app/reports/*.md
-      - /app/logs/*.log
+      - reports/*.md
+      - logs/*.log
     expire_in: 1 week
   rules:
     - if: '$CI_PIPELINE_SOURCE == "schedule"'
