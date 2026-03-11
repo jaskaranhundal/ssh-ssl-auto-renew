@@ -152,7 +152,7 @@ scheduled_renewal:
       -e ACME_SH_COMMAND="/home/certuser/.acme.sh/acme.sh" \
       -e SSH_KEY_PATH="/root/.ssh/automation_key" \
       -e SSH_USER="$SSH_USER" \
-      "$DOCKER_IMAGE:latest" python3 main.py
+      "$DOCKER_IMAGE:latest"
   artifacts:
     paths:
       - reports/*.md
