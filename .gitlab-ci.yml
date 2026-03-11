@@ -140,7 +140,19 @@ scheduled_renewal:
     - chmod 600 /root/.ssh/automation_key
   script:
     - echo "Starting weekly SSL check (Threshold: $RENEWAL_THRESHOLD_DAYS days)..."
-    - "docker run --rm -v $(pwd)/config:/app/config -v /root/.ssh:/root/.ssh -v $(pwd)/reports:/app/reports -v $(pwd)/logs:/app/logs -e IONOS_API_KEY=\"$IONOS_API_KEY_GITLAB\" -e IONOS_API_SECRET=\"$IONOS_API_SECRET_GITLAB\" -e ACME_EMAIL=\"$ACME_EMAIL_GITLAB\" -e ACME_SH_COMMAND=\"/home/certuser/.acme.sh/acme.sh\" -e SSH_KEY_PATH=\"/root/.ssh/automation_key\" -e SSH_USER=\"$SSH_USER\" \"$DOCKER_IMAGE:latest\" python3 main.py"
+    - export RUN_CMD="docker run --rm"
+    - export RUN_CMD="$RUN_CMD -v $(pwd)/config:/app/config"
+    - export RUN_CMD="$RUN_CMD -v /root/.ssh:/root/.ssh"
+    - export RUN_CMD="$RUN_CMD -v $(pwd)/reports:/app/reports"
+    - export RUN_CMD="$RUN_CMD -v $(pwd)/logs:/app/logs"
+    - export RUN_CMD="$RUN_CMD -e IONOS_API_KEY=$IONOS_API_KEY_GITLAB"
+    - export RUN_CMD="$RUN_CMD -e IONOS_API_SECRET=$IONOS_API_SECRET_GITLAB"
+    - export RUN_CMD="$RUN_CMD -e ACME_EMAIL=$ACME_EMAIL_GITLAB"
+    - export RUN_CMD="$RUN_CMD -e ACME_SH_COMMAND=/home/certuser/.acme.sh/acme.sh"
+    - export RUN_CMD="$RUN_CMD -e SSH_KEY_PATH=/root/.ssh/automation_key"
+    - export RUN_CMD="$RUN_CMD -e SSH_USER=$SSH_USER"
+    - export RUN_CMD="$RUN_CMD $DOCKER_IMAGE:latest python3 main.py"
+    - eval $RUN_CMD
   artifacts:
     paths:
       - reports/*.md
