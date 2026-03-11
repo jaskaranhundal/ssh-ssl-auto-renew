@@ -3,8 +3,6 @@
 variables:
   PYTHON_IMAGE: "python:3.10-slim-buster"
   TARGET_SSH_HOSTS: "$TARGET_SSH_HOSTS_GITLAB"
-  # If CI_REGISTRY_IMAGE is empty (GitLab registry disabled), fallback to generic registry
-  DOCKER_IMAGE: "${CI_REGISTRY_IMAGE:-$DOCKER_REGISTRY/lindera/auto_ssl_cert_genration}" 
 
 stages:
   - lint
@@ -106,6 +104,8 @@ build:
     - main
     - /^release-CRL-.*/
     - development
+  before_script:
+    - export DOCKER_IMAGE="${CI_REGISTRY_IMAGE:-$DOCKER_REGISTRY/lindera/auto_ssl_cert_genration}"
   script:
     - docker login -u $DOCKER_REGISTRY_USER -p $DOCKER_REGISTRY_PASSWORD $DOCKER_REGISTRY
     - docker pull "$DOCKER_IMAGE:$CI_COMMIT_REF_SLUG" || true
@@ -124,7 +124,8 @@ build:
 # --- Stage: Renew (Weekly Schedule Pulse) ---
 scheduled_renewal:
   stage: renew
-  image: "$CI_REGISTRY_IMAGE:latest"
+  # Fall back to external registry because CI_REGISTRY_IMAGE is empty
+  image: "$DOCKER_REGISTRY/lindera/auto_ssl_cert_genration:latest"
   before_script:
     - "mkdir -p /app/config"
     - "cp $CI_DOMAINS_YAML /app/config/domains.yaml"
