@@ -1,5 +1,7 @@
 import ssl
 import socket
+import tempfile
+import os
 import requests
 import logging
 from datetime import datetime, timedelta
@@ -63,13 +65,19 @@ class HealthChecker:
                     cert_pem = ssl.DER_cert_to_PEM_cert(ssock.getpeercert(True))
             
             # Write temp cert to parse with our existing function
-            temp_cert_path = "/tmp/health_check_cert.pem"
-            with open(temp_cert_path, "w") as f:
-                f.write(cert_pem)
-            
-            expiry_date = get_certificate_expiry_date(temp_cert_path)
+            tmp_file = tempfile.NamedTemporaryFile(
+                mode="w", suffix=".pem", delete=False
+            )
+            temp_cert_path = tmp_file.name
+            try:
+                tmp_file.write(cert_pem)
+                tmp_file.close()
+                expiry_date = get_certificate_expiry_date(temp_cert_path)
+            finally:
+                os.unlink(temp_cert_path)
             if not expiry_date:
                 raise ValueError("Could not parse expiry date from live certificate.")
+
 
             days_to_expiry = (expiry_date - datetime.now()).days
             logging.info(f"Live certificate for {self.domain} expires on {expiry_date.strftime('%Y-%m-%d')} ({days_to_expiry} days).")

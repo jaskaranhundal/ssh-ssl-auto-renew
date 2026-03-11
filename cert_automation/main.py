@@ -352,10 +352,10 @@ def main():
     results["global_config"] = {
         "renewal_threshold_days": int(os.getenv("RENEWAL_THRESHOLD_DAYS", "30")),
         "acme_email": os.getenv("ACME_EMAIL"),
-        "acme_home_dir": os.getenv("ACME_HOME_DIR", "/tmp/acme_home"),
+        "acme_home_dir": os.getenv("ACME_HOME_DIR", os.path.join(os.getcwd(), ".acme_home")),
         "ionos_api_key": os.getenv("IONOS_API_KEY"),
         "ionos_api_secret": os.getenv("IONOS_API_SECRET"),
-        "cert_base_path": os.getenv("CERT_BASE_PATH", "/tmp/certs"),
+        "cert_base_path": os.getenv("CERT_BASE_PATH", os.path.join(os.getcwd(), ".certs")),
         "report_file_path": os.getenv("REPORT_FILE_PATH") or os.path.join("reports", f"renewal_report_{timestamp}.md"), # Dynamic report file path
         "log_file_path": final_log_file_path, # Store actual log file path in results
         "dry_run": args.dry_run,
