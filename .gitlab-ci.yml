@@ -39,8 +39,8 @@ sca_scan:
   stage: security
   image: $PYTHON_IMAGE
   script:
-    - pip install safety
-    - safety scan -r cert_automation/requirements.txt --output json
+    - pip install pip-audit
+    - pip-audit -r cert_automation/requirements.txt
   rules:
     - if: '$CI_PIPELINE_SOURCE == "push"'
 
