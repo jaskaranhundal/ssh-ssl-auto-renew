@@ -3,7 +3,6 @@
 variables:
   PYTHON_IMAGE: "python:3.10-slim-buster"
   TARGET_SSH_HOSTS: "$TARGET_SSH_HOSTS_GITLAB"
-  # Use your provided registry variables
   DOCKER_IMAGE: "$CI_REGISTRY_IMAGE" 
 
 stages:
@@ -53,7 +52,7 @@ sast_bandit:
   rules:
     - if: '$CI_PIPELINE_SOURCE == "push"'
 
-# --- Stage: Build (Updated with your custom logic) ---
+# --- Stage: Build ---
 build:
   stage: build
   image: docker:28.1.1
@@ -67,38 +66,41 @@ build:
     - development-crl-2024-07
   script:
     - docker login -u $DOCKER_REGISTRY_USER -p $DOCKER_REGISTRY_PASSWORD $DOCKER_REGISTRY
-    - docker pull $DOCKER_IMAGE:$CI_COMMIT_REF_SLUG || true
+    - docker pull "$DOCKER_IMAGE:$CI_COMMIT_REF_SLUG" || true
     - >
       docker build
-      --cache-from $DOCKER_IMAGE:$CI_COMMIT_REF_SLUG
-      --build-arg DEPLOYMENT_BRANCH=$CI_COMMIT_BRANCH
-      --tag $DOCKER_IMAGE:$CI_COMMIT_SHORT_SHA
-      --tag $DOCKER_IMAGE:$CI_COMMIT_REF_SLUG
-      --tag $DOCKER_IMAGE:latest
+      --cache-from "$DOCKER_IMAGE:$CI_COMMIT_REF_SLUG"
+      --build-arg DEPLOYMENT_BRANCH="$CI_COMMIT_BRANCH"
+      --tag "$DOCKER_IMAGE:$CI_COMMIT_SHORT_SHA"
+      --tag "$DOCKER_IMAGE:$CI_COMMIT_REF_SLUG"
+      --tag "$DOCKER_IMAGE:latest"
       .
-    - docker push $DOCKER_IMAGE:$CI_COMMIT_SHORT_SHA
-    - docker push $DOCKER_IMAGE:$CI_COMMIT_REF_SLUG
-    - docker push $DOCKER_IMAGE:latest
+    - docker push "$DOCKER_IMAGE:$CI_COMMIT_SHORT_SHA"
+    - docker push "$DOCKER_IMAGE:$CI_COMMIT_REF_SLUG"
+    - docker push "$DOCKER_IMAGE:latest"
 
 # --- Stage: Renew (Weekly Schedule Pulse) ---
 scheduled_renewal:
   stage: renew
-  image: $DOCKER_IMAGE:latest
+  image: "$CI_REGISTRY_IMAGE:latest"
   before_script:
-    - mkdir -p /app/config
-    - cp "$CI_DOMAINS_YAML" /app/config/domains.yaml
-    - cp "$CI_SERVERS_YAML" /app/config/servers.yaml
-    - mkdir -p /root/.ssh && cp "$SSH_PRIVATE_KEY_GITLAB" /root/.ssh/automation_key && chmod 600 /root/.ssh/automation_key
-    - eval $(ssh-agent -s) && ssh-add /root/.ssh/automation_key
-    - for host in $TARGET_SSH_HOSTS; do ssh-keyscan $host >> ~/.ssh/known_hosts; done
+    - "mkdir -p /app/config"
+    - "cp $CI_DOMAINS_YAML /app/config/domains.yaml"
+    - "cp $CI_SERVERS_YAML /app/config/servers.yaml"
+    - "mkdir -p /root/.ssh"
+    - "cp $SSH_PRIVATE_KEY_GITLAB /root/.ssh/automation_key"
+    - "chmod 600 /root/.ssh/automation_key"
+    - "eval $(ssh-agent -s)"
+    - "ssh-add /root/.ssh/automation_key"
+    - "for host in $TARGET_SSH_HOSTS; do ssh-keyscan $host >> ~/.ssh/known_hosts; done"
   script:
-    - echo "Starting weekly SSL check (Threshold: $RENEWAL_THRESHOLD_DAYS days)..."
-    - export IONOS_API_KEY="$IONOS_API_KEY_GITLAB"
-    - export IONOS_API_SECRET="$IONOS_API_SECRET_GITLAB"
-    - export ACME_EMAIL="$ACME_EMAIL_GITLAB"
-    - export ACME_SH_COMMAND="/home/certuser/.acme.sh/acme.sh"
-    - cd /app
-    - python3 main.py
+    - "echo Starting weekly SSL check (Threshold: $RENEWAL_THRESHOLD_DAYS days)..."
+    - "export IONOS_API_KEY=$IONOS_API_KEY_GITLAB"
+    - "export IONOS_API_SECRET=$IONOS_API_SECRET_GITLAB"
+    - "export ACME_EMAIL=$ACME_EMAIL_GITLAB"
+    - "export ACME_SH_COMMAND=/home/certuser/.acme.sh/acme.sh"
+    - "cd /app"
+    - "python3 main.py"
   artifacts:
     paths:
       - /app/reports/*.md
