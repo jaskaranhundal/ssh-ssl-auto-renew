@@ -52,8 +52,8 @@ def test_get_certificate_expiry_date_file_not_found():
 
 def test_is_certificate_due_for_renewal_true(dummy_cert):
     """Test that is_certificate_due_for_renewal returns True when the cert is due."""
-    # With a 360-day threshold, a 365-day cert should be due for renewal
-    assert is_certificate_due_for_renewal(dummy_cert, renewal_threshold_days=360) is True
+    # With a 370-day threshold, a 365-day cert should be due for renewal
+    assert is_certificate_due_for_renewal(dummy_cert, renewal_threshold_days=370) is True
 
 def test_is_certificate_due_for_renewal_false(dummy_cert):
     """Test that is_certificate_due_for_renewal returns False when the cert is not due."""

@@ -63,6 +63,7 @@ def test_issue_certificate_success(mocker):
         domain="test.com",
         acme_home_dir="/tmp",
         ionos_api_key="test_key",
+        ionos_api_secret="test_secret",
         email="test@test.com",
         cert_storage_path="/tmp/certs"
     )
@@ -90,6 +91,7 @@ def test_issue_certificate_registration_fails(mocker):
             domain="test.com",
             acme_home_dir="/tmp",
             ionos_api_key="test_key",
+            ionos_api_secret="test_secret",
             email="test@test.com",
             cert_storage_path="/tmp/certs"
         )
@@ -108,6 +110,7 @@ def test_issue_certificate_issuance_fails(mocker):
             domain="test.com",
             acme_home_dir="/tmp",
             ionos_api_key="test_key",
+            ionos_api_secret="test_secret",
             email="test@test.com",
             cert_storage_path="/tmp/certs"
         )
