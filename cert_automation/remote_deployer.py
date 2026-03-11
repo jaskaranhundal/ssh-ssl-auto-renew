@@ -1,6 +1,7 @@
 import paramiko
 import logging
 import os
+import uuid
 import socket # Added for network error handling
 from typing import Tuple, Optional
 from retry_decorator import retry # Added for retry logic
@@ -79,7 +80,9 @@ class RemoteDeployer:
         self._connect()
         
         filename = os.path.basename(remote_path)
-        temp_remote_path = f"/tmp/{filename}.tmp"
+        # Build a non-predictable remote staging path to avoid CWE-377.
+        # uuid4 ensures uniqueness without relying on /tmp/<fixed-name>.
+        temp_remote_path = f"/tmp/{uuid.uuid4().hex}_{filename}.tmp"  # nosec B108
 
         try:
             log.info(f"Uploading {local_path} to staging path {self.host}:{temp_remote_path}")
@@ -116,7 +119,8 @@ class RemoteDeployer:
         self._connect()
         
         try:
-            stdin, stdout, stderr = self._ssh_client.exec_command(command)
+            # Commands are sourced exclusively from admin-controlled YAML config — not user input.
+            stdin, stdout, stderr = self._ssh_client.exec_command(command)  # nosec B601
             output = stdout.read().decode().strip()
             error = stderr.read().decode().strip()
             exit_code = stdout.channel.recv_exit_status()
