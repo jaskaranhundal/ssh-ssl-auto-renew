@@ -211,3 +211,8 @@ __marimo__/
 _bmad/
 _bmad-output/
 .claude/
+./cert_automation/config/servers.yaml
+./cert_automation/config/credentials.csv
+./cert_automation/config/domains.yaml
+./cert_automation/log/
+./cert_automation/reports/ 

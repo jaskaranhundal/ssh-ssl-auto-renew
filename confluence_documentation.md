@@ -70,7 +70,6 @@ An automated, configuration-driven system that handles the complete SSL certific
 5. **Secure by Design**: Implement security best practices throughout
 
 #### Success Criteria
-- All user stories across 4 epics implemented
 - Successful end-to-end certificate renewal and deployment
 - New servers/domains addable via YAML configuration only
 - System runs successfully in Docker containers
