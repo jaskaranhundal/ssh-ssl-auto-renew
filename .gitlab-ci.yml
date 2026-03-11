@@ -139,6 +139,10 @@ scheduled_renewal:
     - "export IONOS_API_SECRET=$IONOS_API_SECRET_GITLAB"
     - "export ACME_EMAIL=$ACME_EMAIL_GITLAB"
     - "export ACME_SH_COMMAND=/home/certuser/.acme.sh/acme.sh"
+    # Wire SSH credentials so servers.yaml ${SSH_USER}/${SSH_KEY_PATH} resolve correctly.
+    # SSH_PRIVATE_KEY_GITLAB is already placed at /root/.ssh/automation_key (see before_script).
+    - "export SSH_KEY_PATH=/root/.ssh/automation_key"
+    - "export SSH_USER=$SSH_USER"  # Set SSH_USER in GitLab → Settings → CI/CD → Variables
     - "cd /app"
     - "python3 main.py"
   artifacts:
