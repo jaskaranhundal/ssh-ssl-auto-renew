@@ -1,5 +1,7 @@
 import os
 import logging
+import sys
+import tempfile
 from dotenv import load_dotenv
 import socket
 import ipaddress
@@ -126,14 +128,21 @@ def deploy_certificate(server_config: dict, domain_name: str, local_cert_path: s
     """
     host = server_config.get("host")
     user = server_config.get("user")
-    ssh_key = server_config.get("ssh_key_path")
+    
+    # Allow environment variable to override the SSH key path for CI environments
+    ssh_key = os.getenv("SSH_KEY_PATH") or server_config.get("ssh_key_path")
+    
     remote_cert_path = server_config.get("cert_path")
     reload_command = server_config.get("nginx_reload_command")
     validation_command = server_config.get("validation_command", "sudo nginx -t") # Optional validation command
     server_name = server_config.get("name", host) # Use name if available, else host
 
     if not all([host, user, ssh_key, remote_cert_path, reload_command]):
-        error_msg = f"Server config for '{server_name}' is incomplete. Skipping deployment."
+        missing = [k for k, v in {
+            "host": host, "user": user, "ssh_key": ssh_key, 
+            "cert_path": remote_cert_path, "reload_cmd": reload_command
+        }.items() if not v]
+        error_msg = f"Server config for '{server_name}' is incomplete (Missing: {', '.join(missing)}). Skipping deployment."
         log.error(error_msg)
         return False, error_msg
 
@@ -327,14 +336,20 @@ def main():
     # Generate a timestamp for unique log and report file names
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
 
+    # Load environment variables after logging setup
+    load_dotenv() 
+
     # Dynamically determine log file path
     default_log_file = os.path.join("logs", f"renewal_{timestamp}.log")
     final_log_file_path = os.getenv("LOG_FILE_PATH") or default_log_file
-    setup_logging(final_log_file_path) # Call setup_logging with the determined path
-    log = logging.getLogger(__name__) # Re-get the logger after setup
+    
+    try:
+        setup_logging(final_log_file_path) # Call setup_logging with the determined path
+    except Exception as e:
+        print(f"CRITICAL: Failed to initialize logging: {e}")
+        sys.exit(1)
 
-    # Load environment variables after logging setup
-    load_dotenv() 
+    log = logging.getLogger(__name__) # Re-get the logger after setup
 
     results = {
         "start_time": datetime.now(),
@@ -349,18 +364,23 @@ def main():
         "force_renewal": args.force
     }
 
+    # Secure base paths by defaulting to current workdir subfolders rather than /tmp
+    default_acme_home = os.path.join(os.getcwd(), ".acme_home")
+    default_cert_base = os.path.join(os.getcwd(), ".certs")
+
     results["global_config"] = {
         "renewal_threshold_days": int(os.getenv("RENEWAL_THRESHOLD_DAYS", "30")),
         "acme_email": os.getenv("ACME_EMAIL"),
-        "acme_home_dir": os.getenv("ACME_HOME_DIR", os.path.join(os.getcwd(), ".acme_home")),
+        "acme_home_dir": os.getenv("ACME_HOME_DIR") or default_acme_home,
         "ionos_api_key": os.getenv("IONOS_API_KEY"),
         "ionos_api_secret": os.getenv("IONOS_API_SECRET"),
-        "cert_base_path": os.getenv("CERT_BASE_PATH", os.path.join(os.getcwd(), ".certs")),
-        "report_file_path": os.getenv("REPORT_FILE_PATH") or os.path.join("reports", f"renewal_report_{timestamp}.md"), # Dynamic report file path
-        "log_file_path": final_log_file_path, # Store actual log file path in results
+        "cert_base_path": os.getenv("CERT_BASE_PATH") or default_cert_base,
+        "report_file_path": os.getenv("REPORT_FILE_PATH") or os.path.join("reports", f"renewal_report_{timestamp}.md"),
+        "log_file_path": final_log_file_path,
         "dry_run": args.dry_run,
         "force_renewal": args.force
     }
+    
     if results["global_config"]["dry_run"]:
         log.info("--- Performing a DRY RUN. No actual changes will be made. ---")
     if results["global_config"]["force_renewal"]:
@@ -368,7 +388,7 @@ def main():
 
     if not all([results["global_config"]['acme_email'], results["global_config"]['ionos_api_key'], results["global_config"]['ionos_api_secret']]):
         log.error("Missing critical environment variables: ACME_EMAIL, IONOS_API_KEY, IONOS_API_SECRET. Aborting.")
-        return
+        sys.exit(1)
 
     log.info("Starting SSL certificate renewal process...")
 
@@ -377,7 +397,7 @@ def main():
 
     if not domains_config or not servers_config:
         log.error("Could not load domains.yaml or servers.yaml. Aborting process.")
-        return
+        sys.exit(1)
 
     results["total_domains_configured"] = len(domains_config.get("domains", []))
 
@@ -405,6 +425,13 @@ def main():
         log.info(f"Renewal report saved to: {report_file_path}")
     except IOError as e:
         log.error(f"Failed to write renewal report to {report_file_path}: {e}")
+
+    # Final status check for CI
+    if results["failed_renewals"]:
+        log.error(f"Process finished with {len(results['failed_renewals'])} failures.")
+        sys.exit(1)
+    
+    sys.exit(0)
 
 if __name__ == "__main__":
     main()
