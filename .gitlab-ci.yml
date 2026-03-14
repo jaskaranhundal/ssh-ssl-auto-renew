@@ -3,7 +3,8 @@
 variables:
   PYTHON_IMAGE: "python:3.10-slim-buster"
   TARGET_SSH_HOSTS: "$TARGET_SSH_HOSTS_GITLAB"
-  DOCKER_IMAGE: "$CI_REGISTRY_IMAGE" 
+  # Define the fallback image name clearly
+  IMAGE_NAME: "lindera/auto_ssl_cert_genration"
 
 stages:
   - lint
@@ -69,7 +70,6 @@ dry_run_validation:
       if [ -n "$CI_SERVERS_YAML" ]; then
         cp "$CI_SERVERS_YAML" cert_automation/config/servers.yaml
       fi
-    # Create a dummy SSH key file to satisfy the existence check in main.py
     - mkdir -p "$(pwd)/.ssh"
     - touch "$(pwd)/.ssh/id_rsa"
   script:
@@ -94,14 +94,16 @@ dry_run_validation:
 # --- Stage: Build ---
 build:
   stage: build
-  image: docker:28.1.1
+  image: docker:24.0.5
   services:
-    - docker:dind
+    - docker:24.0.5-dind
   only:
     - master
     - main
     - /^release-CRL-.*/
     - development
+  before_script:
+    - export DOCKER_IMAGE="${CI_REGISTRY_IMAGE:-$DOCKER_REGISTRY/$IMAGE_NAME}"
   script:
     - docker login -u $DOCKER_REGISTRY_USER -p $DOCKER_REGISTRY_PASSWORD $DOCKER_REGISTRY
     - docker pull "$DOCKER_IMAGE:$CI_COMMIT_REF_SLUG" || true
@@ -120,16 +122,21 @@ build:
 # --- Stage: Renew (Weekly Schedule Pulse) ---
 scheduled_renewal:
   stage: renew
-  image: "$CI_REGISTRY_IMAGE:latest"
+  # Resolve image dynamically in a script since variables can't easily use fallback
+  image: $PYTHON_IMAGE 
   before_script:
-    # We are running inside the custom image as 'certuser' (UID 1000)
-    # The project root /app is owned by certuser
-    - "mkdir -p /app/config /app/reports /app/logs"
-    - "cp $CI_DOMAINS_YAML /app/config/domains.yaml"
-    - "cp $CI_SERVERS_YAML /app/config/servers.yaml"
-    - "mkdir -p /home/certuser/.ssh"
-    - "cp $SSH_PRIVATE_KEY_GITLAB /home/certuser/.ssh/id_rsa"
-    - "chmod 600 /home/certuser/.ssh/id_rsa"
+    - export DOCKER_IMAGE="${CI_REGISTRY_IMAGE:-$DOCKER_REGISTRY/$IMAGE_NAME}"
+    # Since we can't easily change the 'image' field of the current job dynamically,
+    # we will use a workaround: run the renewals directly in the python image
+    # BUT if you strictly want to use the built image, we would need another way.
+    # Given the previous errors, running renewals in the python image is MORE STABLE.
+    - pip install -r cert_automation/requirements.txt
+    - mkdir -p /app/config /app/reports /app/logs
+    - cp $CI_DOMAINS_YAML /app/config/domains.yaml
+    - cp $CI_SERVERS_YAML /app/config/servers.yaml
+    - mkdir -p /home/certuser/.ssh
+    - cp $SSH_PRIVATE_KEY_GITLAB /home/certuser/.ssh/id_rsa
+    - chmod 600 /home/certuser/.ssh/id_rsa
   script:
     - "echo Starting weekly SSL check (Threshold: $RENEWAL_THRESHOLD_DAYS days)..."
     - "export IONOS_API_KEY=$IONOS_API_KEY_GITLAB"
@@ -140,6 +147,7 @@ scheduled_renewal:
     - "export CERT_BASE_PATH=/app/certs"
     - "export LOG_FILE_PATH=/app/logs/renewal.log"
     - "export REPORT_FILE_PATH=/app/reports/renewal_report.md"
+    - "cd cert_automation"
     - "python3 main.py"
   artifacts:
     paths:
