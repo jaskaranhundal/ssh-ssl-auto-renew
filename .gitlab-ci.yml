@@ -3,6 +3,7 @@
 variables:
   PYTHON_IMAGE: "python:3.10-slim-buster"
   TARGET_SSH_HOSTS: "$TARGET_SSH_HOSTS_GITLAB"
+  DOCKER_IMAGE: "$CI_REGISTRY_IMAGE" 
 
 stages:
   - lint
@@ -59,32 +60,29 @@ dry_run_validation:
   before_script:
     - pip install -r cert_automation/requirements.txt
     - export PYTHONPATH=$PYTHONPATH:$(pwd)/cert_automation
-    # Inject real config files if CI file-variables are set, else fall back to
-    # committed defaults (which is fine — dry-run makes no real API calls).
     - mkdir -p cert_automation/config
     - |
       if [ -n "$CI_DOMAINS_YAML" ]; then
-        cp $CI_DOMAINS_YAML cert_automation/config/domains.yaml
+        cp "$CI_DOMAINS_YAML" cert_automation/config/domains.yaml
       fi
     - |
       if [ -n "$CI_SERVERS_YAML" ]; then
-        cp $CI_SERVERS_YAML cert_automation/config/servers.yaml
+        cp "$CI_SERVERS_YAML" cert_automation/config/servers.yaml
       fi
+    # Create a dummy SSH key file to satisfy the existence check in main.py
+    - mkdir -p "$(pwd)/.ssh"
+    - touch "$(pwd)/.ssh/id_rsa"
   script:
-    # Placeholder values satisfy the early env-var check; --dry-run
-    # never calls the real ACME or IONOS APIs.
     - export ACME_EMAIL="${ACME_EMAIL:-ci-dryrun@example.com}"
     - export IONOS_API_KEY="${IONOS_API_KEY:-dryrun-placeholder}"
     - export IONOS_API_SECRET="${IONOS_API_SECRET:-dryrun-placeholder}"
+    - export SSH_KEY_PATH="$(pwd)/.ssh/id_rsa"
     - export CERT_BASE_PATH="$(pwd)/.certs"
     - export ACME_HOME_DIR="$(pwd)/.acme_home"
     - export REPORT_FILE_PATH="$(pwd)/cert_automation/reports/dry_run_report.md"
     - cd cert_automation
     - mkdir -p reports
-    - echo "--- Running cert_automation in DRY-RUN mode ---"
     - python3 main.py --dry-run
-    - echo "--- Dry-run complete. Report:"
-    - cat reports/dry_run_report.md
   artifacts:
     name: "dry-run-report-$CI_COMMIT_SHORT_SHA"
     paths:
@@ -104,8 +102,6 @@ build:
     - main
     - /^release-CRL-.*/
     - development
-  before_script:
-    - export DOCKER_IMAGE="${CI_REGISTRY_IMAGE:-$DOCKER_REGISTRY/lindera/auto_ssl_cert_genration}"
   script:
     - docker login -u $DOCKER_REGISTRY_USER -p $DOCKER_REGISTRY_PASSWORD $DOCKER_REGISTRY
     - docker pull "$DOCKER_IMAGE:$CI_COMMIT_REF_SLUG" || true
@@ -124,39 +120,33 @@ build:
 # --- Stage: Renew (Weekly Schedule Pulse) ---
 scheduled_renewal:
   stage: renew
-  image: docker:28.1.1
-  services:
-    - docker:dind
+  image: "$CI_REGISTRY_IMAGE:latest"
   before_script:
-    - docker login -u $DOCKER_REGISTRY_USER -p $DOCKER_REGISTRY_PASSWORD $DOCKER_REGISTRY
-    - export DOCKER_IMAGE="${CI_REGISTRY_IMAGE:-$DOCKER_REGISTRY/lindera/auto_ssl_cert_genration}"
-    - docker pull "$DOCKER_IMAGE:latest"
-    # Prepare local mounts for the container run
-    - mkdir -p $(pwd)/config
-    - cp $CI_DOMAINS_YAML $(pwd)/config/domains.yaml
-    - cp $CI_SERVERS_YAML $(pwd)/config/servers.yaml
-    - mkdir -p /root/.ssh
-    - cp $SSH_PRIVATE_KEY_GITLAB /root/.ssh/automation_key
-    - chmod 600 /root/.ssh/automation_key
+    # We are running inside the custom image as 'certuser' (UID 1000)
+    # The project root /app is owned by certuser
+    - "mkdir -p /app/config /app/reports /app/logs"
+    - "cp $CI_DOMAINS_YAML /app/config/domains.yaml"
+    - "cp $CI_SERVERS_YAML /app/config/servers.yaml"
+    - "mkdir -p /home/certuser/.ssh"
+    - "cp $SSH_PRIVATE_KEY_GITLAB /home/certuser/.ssh/id_rsa"
+    - "chmod 600 /home/certuser/.ssh/id_rsa"
   script:
-   # - echo 'Starting weekly SSL check (Threshold: $RENEWAL_THRESHOLD_DAYS days)...'
-    - |
-      docker run --rm \
-      -v $(pwd)/config:/app/config \
-      -v /root/.ssh:/root/.ssh \
-      -v $(pwd)/reports:/app/reports \
-      -v $(pwd)/logs:/app/logs \
-      -e IONOS_API_KEY="$IONOS_API_KEY_GITLAB" \
-      -e IONOS_API_SECRET="$IONOS_API_SECRET_GITLAB" \
-      -e ACME_EMAIL="$ACME_EMAIL_GITLAB" \
-      -e ACME_SH_COMMAND="/home/certuser/.acme.sh/acme.sh" \
-      -e SSH_KEY_PATH="/root/.ssh/automation_key" \
-      -e SSH_USER="$SSH_USER" \
-      "$DOCKER_IMAGE:latest"
+    - "echo Starting weekly SSL check (Threshold: $RENEWAL_THRESHOLD_DAYS days)..."
+    - "export IONOS_API_KEY=$IONOS_API_KEY_GITLAB"
+    - "export IONOS_API_SECRET=$IONOS_API_SECRET_GITLAB"
+    - "export ACME_EMAIL=$ACME_EMAIL_GITLAB"
+    - "export ACME_SH_COMMAND=/home/certuser/.acme.sh/acme.sh"
+    - "export SSH_KEY_PATH=/home/certuser/.ssh/id_rsa"
+    - "export CERT_BASE_PATH=/app/certs"
+    - "export LOG_FILE_PATH=/app/logs/renewal.log"
+    - "export REPORT_FILE_PATH=/app/reports/renewal_report.md"
+    - "python3 main.py"
   artifacts:
     paths:
-      - reports/*.md
-      - logs/*.log
+      - /app/reports/*.md
+      - /app/logs/*.log
     expire_in: 1 week
   rules:
     - if: '$CI_PIPELINE_SOURCE == "schedule"'
+    - if: '$CI_COMMIT_BRANCH == "main"'
+      when: manual
