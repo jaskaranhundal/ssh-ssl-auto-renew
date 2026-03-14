@@ -69,10 +69,14 @@ dry_run_validation:
       if [ -n "$CI_SERVERS_YAML" ]; then
         cp "$CI_SERVERS_YAML" cert_automation/config/servers.yaml
       fi
+    # Create a dummy SSH key file to satisfy the existence check in main.py
+    - mkdir -p "$(pwd)/.ssh"
+    - touch "$(pwd)/.ssh/id_rsa"
   script:
     - export ACME_EMAIL="${ACME_EMAIL:-ci-dryrun@example.com}"
     - export IONOS_API_KEY="${IONOS_API_KEY:-dryrun-placeholder}"
     - export IONOS_API_SECRET="${IONOS_API_SECRET:-dryrun-placeholder}"
+    - export SSH_KEY_PATH="$(pwd)/.ssh/id_rsa"
     - export CERT_BASE_PATH="$(pwd)/.certs"
     - export ACME_HOME_DIR="$(pwd)/.acme_home"
     - export REPORT_FILE_PATH="$(pwd)/cert_automation/reports/dry_run_report.md"
@@ -132,6 +136,7 @@ scheduled_renewal:
     - "export IONOS_API_SECRET=$IONOS_API_SECRET_GITLAB"
     - "export ACME_EMAIL=$ACME_EMAIL_GITLAB"
     - "export ACME_SH_COMMAND=/home/certuser/.acme.sh/acme.sh"
+    - "export SSH_KEY_PATH=/home/certuser/.ssh/id_rsa"
     - "export CERT_BASE_PATH=/app/certs"
     - "export LOG_FILE_PATH=/app/logs/renewal.log"
     - "export REPORT_FILE_PATH=/app/reports/renewal_report.md"
