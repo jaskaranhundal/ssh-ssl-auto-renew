@@ -128,14 +128,21 @@ def deploy_certificate(server_config: dict, domain_name: str, local_cert_path: s
     """
     host = server_config.get("host")
     user = server_config.get("user")
-    ssh_key = server_config.get("ssh_key_path")
+    
+    # Allow environment variable to override the SSH key path for CI environments
+    ssh_key = os.getenv("SSH_KEY_PATH") or server_config.get("ssh_key_path")
+    
     remote_cert_path = server_config.get("cert_path")
     reload_command = server_config.get("nginx_reload_command")
     validation_command = server_config.get("validation_command", "sudo nginx -t") # Optional validation command
     server_name = server_config.get("name", host) # Use name if available, else host
 
     if not all([host, user, ssh_key, remote_cert_path, reload_command]):
-        error_msg = f"Server config for '{server_name}' is incomplete. Skipping deployment."
+        missing = [k for k, v in {
+            "host": host, "user": user, "ssh_key": ssh_key, 
+            "cert_path": remote_cert_path, "reload_cmd": reload_command
+        }.items() if not v]
+        error_msg = f"Server config for '{server_name}' is incomplete (Missing: {', '.join(missing)}). Skipping deployment."
         log.error(error_msg)
         return False, error_msg
 
