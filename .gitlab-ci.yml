@@ -3,7 +3,6 @@
 variables:
   PYTHON_IMAGE: "python:3.10-slim-buster"
   TARGET_SSH_HOSTS: "$TARGET_SSH_HOSTS_GITLAB"
-  # Define the fallback image name clearly
   IMAGE_NAME: "lindera/auto_ssl_cert_genration"
 
 stages:
@@ -122,37 +121,41 @@ build:
 # --- Stage: Renew (Weekly Schedule Pulse) ---
 scheduled_renewal:
   stage: renew
-  # Resolve image dynamically in a script since variables can't easily use fallback
-  image: $PYTHON_IMAGE 
+  image: docker:24.0.5
+  services:
+    - docker:24.0.5-dind
   before_script:
+    - docker login -u $DOCKER_REGISTRY_USER -p $DOCKER_REGISTRY_PASSWORD $DOCKER_REGISTRY
     - export DOCKER_IMAGE="${CI_REGISTRY_IMAGE:-$DOCKER_REGISTRY/$IMAGE_NAME}"
-    # Since we can't easily change the 'image' field of the current job dynamically,
-    # we will use a workaround: run the renewals directly in the python image
-    # BUT if you strictly want to use the built image, we would need another way.
-    # Given the previous errors, running renewals in the python image is MORE STABLE.
-    - pip install -r cert_automation/requirements.txt
-    - mkdir -p /app/config /app/reports /app/logs
-    - cp $CI_DOMAINS_YAML /app/config/domains.yaml
-    - cp $CI_SERVERS_YAML /app/config/servers.yaml
-    - mkdir -p /home/certuser/.ssh
-    - cp $SSH_PRIVATE_KEY_GITLAB /home/certuser/.ssh/id_rsa
-    - chmod 600 /home/certuser/.ssh/id_rsa
+    - docker pull "$DOCKER_IMAGE:latest"
+    # Create local directories and ensure they are world-writable so the container user (1000) can write to them
+    - mkdir -p $(pwd)/config $(pwd)/reports $(pwd)/logs $(pwd)/.ssh
+    - chmod -R 777 $(pwd)/reports $(pwd)/logs
+    - cp $CI_DOMAINS_YAML $(pwd)/config/domains.yaml
+    - cp $CI_SERVERS_YAML $(pwd)/config/servers.yaml
+    - cp $SSH_PRIVATE_KEY_GITLAB $(pwd)/.ssh/id_rsa
+    - chmod 600 $(pwd)/.ssh/id_rsa
   script:
     - "echo Starting weekly SSL check (Threshold: $RENEWAL_THRESHOLD_DAYS days)..."
-    - "export IONOS_API_KEY=$IONOS_API_KEY_GITLAB"
-    - "export IONOS_API_SECRET=$IONOS_API_SECRET_GITLAB"
-    - "export ACME_EMAIL=$ACME_EMAIL_GITLAB"
-    - "export ACME_SH_COMMAND=/home/certuser/.acme.sh/acme.sh"
-    - "export SSH_KEY_PATH=/home/certuser/.ssh/id_rsa"
-    - "export CERT_BASE_PATH=/app/certs"
-    - "export LOG_FILE_PATH=/app/logs/renewal.log"
-    - "export REPORT_FILE_PATH=/app/reports/renewal_report.md"
-    - "cd cert_automation"
-    - "python3 main.py"
+    - |
+      docker run --rm \
+      -v $(pwd)/config:/app/config \
+      -v $(pwd)/reports:/app/reports \
+      -v $(pwd)/logs:/app/logs \
+      -v $(pwd)/.ssh:/home/certuser/.ssh \
+      -e IONOS_API_KEY="$IONOS_API_KEY_GITLAB" \
+      -e IONOS_API_SECRET="$IONOS_API_SECRET_GITLAB" \
+      -e ACME_EMAIL="$ACME_EMAIL_GITLAB" \
+      -e ACME_SH_COMMAND="/home/certuser/.acme.sh/acme.sh" \
+      -e SSH_KEY_PATH="/home/certuser/.ssh/id_rsa" \
+      -e CERT_BASE_PATH="/app/certs" \
+      -e LOG_FILE_PATH="/app/logs/renewal.log" \
+      -e REPORT_FILE_PATH="/app/reports/renewal_report.md" \
+      "$DOCKER_IMAGE:latest"
   artifacts:
     paths:
-      - /app/reports/*.md
-      - /app/logs/*.log
+      - reports/*.md
+      - logs/*.log
     expire_in: 1 week
   rules:
     - if: '$CI_PIPELINE_SOURCE == "schedule"'
