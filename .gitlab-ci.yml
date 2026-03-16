@@ -5,6 +5,7 @@ variables:
   DOCKER_REGISTRY: "swr.eu-de.otc.t-systems.com"
   IMAGE_NAME: "lindera/auto_ssl_cert_genration"
   TARGET_SSH_HOSTS: "$TARGET_SSH_HOSTS_GITLAB"
+  # Construct the full image path for consistency across jobs
   FULL_IMAGE_PATH: "$DOCKER_REGISTRY/$IMAGE_NAME"
 
 stages:
@@ -119,20 +120,21 @@ build:
 # --- Stage: Renew (Weekly Schedule Pulse) ---
 scheduled_renewal:
   stage: renew
-  # Use public docker image so the runner can always pull it
+  # Use public docker image to bypass pull-authentication restrictions on runners
   image: docker:24.0.5
   services:
     - docker:24.0.5-dind
   before_script:
     - docker login -u $DOCKER_REGISTRY_USER -p $DOCKER_REGISTRY_PASSWORD $DOCKER_REGISTRY
     - docker pull "$FULL_IMAGE_PATH:latest"
-    # Create local directories for mounting
-    - mkdir -p $(pwd)/config $(pwd)/reports $(pwd)/logs $(pwd)/.ssh
-    - chmod -R 777 $(pwd)/reports $(pwd)/logs
-    - cp "$CI_DOMAINS_YAML" $(pwd)/config/domains.yaml
-    - cp "$CI_SERVERS_YAML" $(pwd)/config/servers.yaml
-    - cp "$SSH_PRIVATE_KEY_GITLAB" $(pwd)/.ssh/id_rsa
-    - chmod 600 $(pwd)/.ssh/id_rsa
+    # Create local directories and ensure they are world-writable (777)
+    # This allows the non-root container user (certuser) to read/write.
+    - mkdir -p "$(pwd)/config" "$(pwd)/reports" "$(pwd)/logs" "$(pwd)/.ssh"
+    - chmod -R 777 "$(pwd)/config" "$(pwd)/reports" "$(pwd)/logs"
+    - cp "$CI_DOMAINS_YAML" "$(pwd)/config/domains.yaml"
+    - cp "$CI_SERVERS_YAML" "$(pwd)/config/servers.yaml"
+    - cp "$SSH_PRIVATE_KEY_GITLAB" "$(pwd)/.ssh/id_rsa"
+    - chmod 600 "$(pwd)/.ssh/id_rsa"
   script:
     - echo "Starting weekly SSL renewal check..."
     - |
