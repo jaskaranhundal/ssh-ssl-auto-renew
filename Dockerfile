@@ -7,40 +7,29 @@ FROM python:3.10-slim-bookworm
 # Create a non-root user and group
 ARG UID=1000
 RUN addgroup --system --gid ${UID} certuser && \
-    adduser --system --uid ${UID} --ingroup certuser certuser
+    adduser --system --uid ${UID} --ingroup certuser --create-home certuser
 
 # Set working directory inside the container
 WORKDIR /app
 
 # Install system dependencies
-# - curl is needed to install acme.sh
-# - git is a dependency for acme.sh
-# - socat is often required by acme.sh
-# - openssh-client is needed for paramiko operations
 RUN apt-get update && apt-get install -y --no-install-recommends \
     curl \
     git \
     socat \
     openssh-client \
     sudo \
-    # Clean up apt cache
     && rm -rf /var/lib/apt/lists/*
 
-# Pre-create acme directory and install acme.sh
-# Switch to certuser first so installation happens with correct ownership
+# Ensure home directory exists and is owned by certuser before switching
+RUN mkdir -p /home/certuser/.acme.sh && chown -R certuser:certuser /home/certuser
+
+# Switch to certuser for acme.sh installation
 USER certuser
-RUN mkdir -p /home/certuser/.acme.sh && \
-    curl https://get.acme.sh | sh -s -- --install --home /home/certuser/.acme.sh \
+RUN curl https://get.acme.sh | sh -s -- --install --home /home/certuser/.acme.sh \
     --accountemail "jaskarn.singh@lindera.de"
 
-# Add acme.sh to PATH
-ENV PATH="/home/certuser/.acme.sh:${PATH}"
-# Explicitly set the command path for the Python script
-ENV ACME_SH_COMMAND="/home/certuser/.acme.sh/acme.sh"
-
-# Copy application requirements
-# (We are already certuser, but we might need root to install pip requirements if they go to system)
-# Actually, pip install --user is safer or just stay root for pip then switch back.
+# Switch back to root for global symlink and dependencies
 USER root
 RUN ln -s /home/certuser/.acme.sh/acme.sh /usr/local/bin/acme.sh
 COPY cert_automation/requirements.txt .
