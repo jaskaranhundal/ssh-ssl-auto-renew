@@ -24,8 +24,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # Ensure home directory exists and is owned by certuser before switching
 RUN mkdir -p /home/certuser/.acme.sh && chown -R certuser:certuser /home/certuser
 
-# Switch to certuser for acme.sh installation
+# Switch to certuser for acme.sh installation (must be in a writable dir)
 USER certuser
+WORKDIR /home/certuser
 RUN curl -fsSL https://get.acme.sh | sh -s -- --install --home /home/certuser/.acme.sh \
     --accountemail "jaskarn.singh@lindera.de" && \
     test -f /home/certuser/.acme.sh/acme.sh && \
@@ -33,6 +34,7 @@ RUN curl -fsSL https://get.acme.sh | sh -s -- --install --home /home/certuser/.a
 
 # Switch back to root for global symlink and dependencies
 USER root
+WORKDIR /app
 RUN ln -sf /home/certuser/.acme.sh/acme.sh /usr/local/bin/acme.sh
 COPY cert_automation/requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
