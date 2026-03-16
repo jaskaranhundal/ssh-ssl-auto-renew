@@ -2,8 +2,11 @@
 
 variables:
   PYTHON_IMAGE: "python:3.10-slim-buster"
-  TARGET_SSH_HOSTS: "$TARGET_SSH_HOSTS_GITLAB"
+  DOCKER_REGISTRY: "swr.eu-de.otc.t-systems.com"
   IMAGE_NAME: "lindera/auto_ssl_cert_genration"
+  TARGET_SSH_HOSTS: "$TARGET_SSH_HOSTS_GITLAB"
+  # Construct the full image path for consistency across jobs
+  FULL_IMAGE_PATH: "$DOCKER_REGISTRY/$IMAGE_NAME"
 
 stages:
   - lint
@@ -105,57 +108,45 @@ build:
     - export DOCKER_IMAGE="${CI_REGISTRY_IMAGE:-$DOCKER_REGISTRY/$IMAGE_NAME}"
   script:
     - docker login -u $DOCKER_REGISTRY_USER -p $DOCKER_REGISTRY_PASSWORD $DOCKER_REGISTRY
-    - docker pull "$DOCKER_IMAGE:$CI_COMMIT_REF_SLUG" || true
+    - docker pull "$FULL_IMAGE_PATH:latest" || true
     - >
       docker build
-      --cache-from "$DOCKER_IMAGE:$CI_COMMIT_REF_SLUG"
+      --cache-from "$FULL_IMAGE_PATH:latest"
       --build-arg DEPLOYMENT_BRANCH="$CI_COMMIT_BRANCH"
-      --tag "$DOCKER_IMAGE:$CI_COMMIT_SHORT_SHA"
-      --tag "$DOCKER_IMAGE:$CI_COMMIT_REF_SLUG"
-      --tag "$DOCKER_IMAGE:latest"
+      --tag "$FULL_IMAGE_PATH:$CI_COMMIT_SHORT_SHA"
+      --tag "$FULL_IMAGE_PATH:latest"
       .
-    - docker push "$DOCKER_IMAGE:$CI_COMMIT_SHORT_SHA"
-    - docker push "$DOCKER_IMAGE:$CI_COMMIT_REF_SLUG"
-    - docker push "$DOCKER_IMAGE:latest"
+    - docker push "$FULL_IMAGE_PATH:$CI_COMMIT_SHORT_SHA"
+    - docker push "$FULL_IMAGE_PATH:latest"
 
 # --- Stage: Renew (Weekly Schedule Pulse) ---
 scheduled_renewal:
   stage: renew
-  image: docker:24.0.5
-  services:
-    - docker:24.0.5-dind
+  # Run directly in the built production image to avoid DinD and permission issues
+  image: "swr.eu-de.otc.t-systems.com/lindera/auto_ssl_cert_genration:latest"
   before_script:
-    - docker login -u $DOCKER_REGISTRY_USER -p $DOCKER_REGISTRY_PASSWORD $DOCKER_REGISTRY
-    - export DOCKER_IMAGE="${CI_REGISTRY_IMAGE:-$DOCKER_REGISTRY/$IMAGE_NAME}"
-    - docker pull "$DOCKER_IMAGE:latest"
-    # Create local directories and ensure they are world-writable so the container user (1000) can write to them
-    - mkdir -p $(pwd)/config $(pwd)/reports $(pwd)/logs $(pwd)/.ssh
-    - chmod -R 777 $(pwd)/reports $(pwd)/logs
-    - cp $CI_DOMAINS_YAML $(pwd)/config/domains.yaml
-    - cp $CI_SERVERS_YAML $(pwd)/config/servers.yaml
-    - cp $SSH_PRIVATE_KEY_GITLAB $(pwd)/.ssh/id_rsa
-    - chmod 600 $(pwd)/.ssh/id_rsa
+    # We are running inside the custom image as 'certuser' (UID 1000)
+    # Project root /app is owned by certuser
+    - mkdir -p /app/config /app/reports /app/logs /home/certuser/.ssh
+    - cp "$CI_DOMAINS_YAML" /app/config/domains.yaml
+    - cp "$CI_SERVERS_YAML" /app/config/servers.yaml
+    - cp "$SSH_PRIVATE_KEY_GITLAB" /home/certuser/.ssh/id_rsa
+    - chmod 600 /home/certuser/.ssh/id_rsa
   script:
-    - "echo Starting weekly SSL check (Threshold: $RENEWAL_THRESHOLD_DAYS days)..."
-    - |
-      docker run --rm \
-      -v $(pwd)/config:/app/config \
-      -v $(pwd)/reports:/app/reports \
-      -v $(pwd)/logs:/app/logs \
-      -v $(pwd)/.ssh:/home/certuser/.ssh \
-      -e IONOS_API_KEY="$IONOS_API_KEY_GITLAB" \
-      -e IONOS_API_SECRET="$IONOS_API_SECRET_GITLAB" \
-      -e ACME_EMAIL="$ACME_EMAIL_GITLAB" \
-      -e ACME_SH_COMMAND="/home/certuser/.acme.sh/acme.sh" \
-      -e SSH_KEY_PATH="/home/certuser/.ssh/id_rsa" \
-      -e CERT_BASE_PATH="/app/certs" \
-      -e LOG_FILE_PATH="/app/logs/renewal.log" \
-      -e REPORT_FILE_PATH="/app/reports/renewal_report.md" \
-      "$DOCKER_IMAGE:latest"
+    - echo "Starting weekly SSL renewal process"
+    - export IONOS_API_KEY="$IONOS_API_KEY_GITLAB"
+    - export IONOS_API_SECRET="$IONOS_API_SECRET_GITLAB"
+    - export ACME_EMAIL="$ACME_EMAIL_GITLAB"
+    - export ACME_SH_COMMAND="/home/certuser/.acme.sh/acme.sh"
+    - export SSH_KEY_PATH="/home/certuser/.ssh/id_rsa"
+    - export CERT_BASE_PATH="/app/certs"
+    - export LOG_FILE_PATH="/app/logs/renewal.log"
+    - export REPORT_FILE_PATH="/app/reports/renewal_report.md"
+    - python3 main.py
   artifacts:
     paths:
-      - reports/*.md
-      - logs/*.log
+      - /app/reports/*.md
+      - /app/logs/*.log
     expire_in: 1 week
   rules:
     - if: '$CI_PIPELINE_SOURCE == "schedule"'
