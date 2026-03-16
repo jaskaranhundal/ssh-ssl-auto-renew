@@ -26,12 +26,14 @@ RUN mkdir -p /home/certuser/.acme.sh && chown -R certuser:certuser /home/certuse
 
 # Switch to certuser for acme.sh installation
 USER certuser
-RUN curl https://get.acme.sh | sh -s -- --install --home /home/certuser/.acme.sh \
-    --accountemail "jaskarn.singh@lindera.de"
+RUN curl -fsSL https://get.acme.sh | sh -s -- --install --home /home/certuser/.acme.sh \
+    --accountemail "jaskarn.singh@lindera.de" && \
+    test -f /home/certuser/.acme.sh/acme.sh && \
+    /home/certuser/.acme.sh/acme.sh --version
 
 # Switch back to root for global symlink and dependencies
 USER root
-RUN ln -s /home/certuser/.acme.sh/acme.sh /usr/local/bin/acme.sh
+RUN ln -sf /home/certuser/.acme.sh/acme.sh /usr/local/bin/acme.sh
 COPY cert_automation/requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 

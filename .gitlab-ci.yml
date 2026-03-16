@@ -108,7 +108,7 @@ build:
     - docker pull "$FULL_IMAGE_PATH:latest" || true
     - >
       docker build
-      --cache-from "$FULL_IMAGE_PATH:latest"
+      --no-cache
       --build-arg DEPLOYMENT_BRANCH="$CI_COMMIT_BRANCH"
       --tag "$FULL_IMAGE_PATH:$CI_COMMIT_SHORT_SHA"
       --tag "$FULL_IMAGE_PATH:latest"
@@ -148,6 +148,8 @@ scheduled_renewal:
       -e IONOS_API_KEY="$IONOS_API_KEY_GITLAB" \
       -e IONOS_API_SECRET="$IONOS_API_SECRET_GITLAB" \
       -e ACME_EMAIL="$ACME_EMAIL_GITLAB" \
+      -e ACME_SH_COMMAND="/home/certuser/.acme.sh/acme.sh" \
+      -e ACME_HOME_DIR="/home/certuser/.acme.sh" \
       -e SSH_KEY_PATH="/home/certuser/.ssh/id_rsa" \
       -e CERT_BASE_PATH="/app/certs" \
       -e LOG_FILE_PATH="/app/logs/renewal.log" \
