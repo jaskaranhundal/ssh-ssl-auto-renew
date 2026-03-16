@@ -5,7 +5,6 @@ variables:
   DOCKER_REGISTRY: "swr.eu-de.otc.t-systems.com"
   IMAGE_NAME: "lindera/auto_ssl_cert_genration"
   TARGET_SSH_HOSTS: "$TARGET_SSH_HOSTS_GITLAB"
-  # Construct the full image path for consistency across jobs
   FULL_IMAGE_PATH: "$DOCKER_REGISTRY/$IMAGE_NAME"
 
 stages:
@@ -104,8 +103,6 @@ build:
     - main
     - /^release-CRL-.*/
     - development
-  before_script:
-    - export DOCKER_IMAGE="${CI_REGISTRY_IMAGE:-$DOCKER_REGISTRY/$IMAGE_NAME}"
   script:
     - docker login -u $DOCKER_REGISTRY_USER -p $DOCKER_REGISTRY_PASSWORD $DOCKER_REGISTRY
     - docker pull "$FULL_IMAGE_PATH:latest" || true
@@ -122,31 +119,41 @@ build:
 # --- Stage: Renew (Weekly Schedule Pulse) ---
 scheduled_renewal:
   stage: renew
-  # Run directly in the built production image to avoid DinD and permission issues
-  image: "swr.eu-de.otc.t-systems.com/lindera/auto_ssl_cert_genration:latest"
+  # Use public docker image so the runner can always pull it
+  image: docker:24.0.5
+  services:
+    - docker:24.0.5-dind
   before_script:
-    # We are running inside the custom image as 'certuser' (UID 1000)
-    # Project root /app is owned by certuser
-    - mkdir -p /app/config /app/reports /app/logs /home/certuser/.ssh
-    - cp "$CI_DOMAINS_YAML" /app/config/domains.yaml
-    - cp "$CI_SERVERS_YAML" /app/config/servers.yaml
-    - cp "$SSH_PRIVATE_KEY_GITLAB" /home/certuser/.ssh/id_rsa
-    - chmod 600 /home/certuser/.ssh/id_rsa
+    - docker login -u $DOCKER_REGISTRY_USER -p $DOCKER_REGISTRY_PASSWORD $DOCKER_REGISTRY
+    - docker pull "$FULL_IMAGE_PATH:latest"
+    # Create local directories for mounting
+    - mkdir -p $(pwd)/config $(pwd)/reports $(pwd)/logs $(pwd)/.ssh
+    - chmod -R 777 $(pwd)/reports $(pwd)/logs
+    - cp "$CI_DOMAINS_YAML" $(pwd)/config/domains.yaml
+    - cp "$CI_SERVERS_YAML" $(pwd)/config/servers.yaml
+    - cp "$SSH_PRIVATE_KEY_GITLAB" $(pwd)/.ssh/id_rsa
+    - chmod 600 $(pwd)/.ssh/id_rsa
   script:
-    - echo "Starting weekly SSL renewal process"
-    - export IONOS_API_KEY="$IONOS_API_KEY_GITLAB"
-    - export IONOS_API_SECRET="$IONOS_API_SECRET_GITLAB"
-    - export ACME_EMAIL="$ACME_EMAIL_GITLAB"
-    - export ACME_SH_COMMAND="/home/certuser/.acme.sh/acme.sh"
-    - export SSH_KEY_PATH="/home/certuser/.ssh/id_rsa"
-    - export CERT_BASE_PATH="/app/certs"
-    - export LOG_FILE_PATH="/app/logs/renewal.log"
-    - export REPORT_FILE_PATH="/app/reports/renewal_report.md"
-    - python3 main.py
+    - echo "Starting weekly SSL renewal check..."
+    - |
+      docker run --rm \
+      -v "$(pwd)/config:/app/config" \
+      -v "$(pwd)/reports:/app/reports" \
+      -v "$(pwd)/logs:/app/logs" \
+      -v "$(pwd)/.ssh:/home/certuser/.ssh" \
+      -e IONOS_API_KEY="$IONOS_API_KEY_GITLAB" \
+      -e IONOS_API_SECRET="$IONOS_API_SECRET_GITLAB" \
+      -e ACME_EMAIL="$ACME_EMAIL_GITLAB" \
+      -e ACME_SH_COMMAND="/home/certuser/.acme.sh/acme.sh" \
+      -e SSH_KEY_PATH="/home/certuser/.ssh/id_rsa" \
+      -e CERT_BASE_PATH="/app/certs" \
+      -e LOG_FILE_PATH="/app/logs/renewal.log" \
+      -e REPORT_FILE_PATH="/app/reports/renewal_report.md" \
+      "$FULL_IMAGE_PATH:latest"
   artifacts:
     paths:
-      - /app/reports/*.md
-      - /app/logs/*.log
+      - reports/*.md
+      - logs/*.log
     expire_in: 1 week
   rules:
     - if: '$CI_PIPELINE_SOURCE == "schedule"'
