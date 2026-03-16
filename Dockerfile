@@ -6,8 +6,8 @@ FROM python:3.10-slim-bookworm
 
 # Create a non-root user and group
 ARG UID=1000
-RUN addgroup --system --gid ${UID} certuser && \
-    adduser --system --uid ${UID} --ingroup certuser --create-home certuser
+RUN groupadd --system --gid ${UID} certuser && \
+    useradd --system --uid ${UID} --gid certuser --create-home certuser
 
 # Set working directory inside the container
 WORKDIR /app

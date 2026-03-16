@@ -215,4 +215,4 @@ _bmad-output/
 ./cert_automation/config/credentials.csv
 ./cert_automation/config/domains.yaml
 ./cert_automation/log/
-./cert_automation/reports/ 
+./cert_automation/reports/
