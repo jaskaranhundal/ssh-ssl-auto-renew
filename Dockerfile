@@ -27,7 +27,7 @@ RUN mkdir -p /home/certuser/.acme.sh && chown -R certuser:certuser /home/certuse
 # Switch to certuser for acme.sh installation (must be in a writable dir)
 USER certuser
 WORKDIR /home/certuser
-RUN curl -fsSL https://get.acme.sh | sh -s -- --install --home /home/certuser/.acme.sh \
+RUN curl -fsSL https://get.acme.sh | sh -s -- --home /home/certuser/.acme.sh \
     --accountemail "jaskarn.singh@lindera.de" && \
     test -f /home/certuser/.acme.sh/acme.sh && \
     /home/certuser/.acme.sh/acme.sh --version
