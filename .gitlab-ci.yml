@@ -4,7 +4,7 @@ variables:
   PYTHON_IMAGE: "python:3.10-slim-buster"
   DOCKER_REGISTRY: "swr.eu-de.otc.t-systems.com"
   IMAGE_NAME: "lindera/auto_ssl_cert_genration"
-  # Construct the full image path for consistency across jobs
+  TARGET_SSH_HOSTS: "$TARGET_SSH_HOSTS_GITLAB"
   FULL_IMAGE_PATH: "$DOCKER_REGISTRY/$IMAGE_NAME"
 
 stages:
@@ -119,32 +119,41 @@ build:
 # --- Stage: Renew (Weekly Schedule Pulse) ---
 scheduled_renewal:
   stage: renew
-  # Run directly in the built production image to avoid DinD and permission issues
-  image: "swr.eu-de.otc.t-systems.com/lindera/auto_ssl_cert_genration:latest"
+  image: docker:24.0.5
+  services:
+    - docker:24.0.5-dind
   before_script:
-    # We are running inside the custom image as 'certuser' (UID 1000)
-    # Project root /app is owned by certuser
-    - mkdir -p /app/config /app/reports /app/logs /home/certuser/.ssh
-    - cp "$CI_DOMAINS_YAML" /app/config/domains.yaml
-    - cp "$CI_SERVERS_YAML" /app/config/servers.yaml
-    - cp "$SSH_PRIVATE_KEY_GITLAB" /home/certuser/.ssh/id_rsa
-    - chmod 600 /home/certuser/.ssh/id_rsa
+    - docker login -u $DOCKER_REGISTRY_USER -p $DOCKER_REGISTRY_PASSWORD $DOCKER_REGISTRY
+    - docker pull "$FULL_IMAGE_PATH:latest"
+    # Prepare ephemeral injection context
+    - mkdir -p deploy_context/config deploy_context/ssh
+    - cp "$CI_DOMAINS_YAML" deploy_context/config/domains.yaml
+    - cp "$CI_SERVERS_YAML" deploy_context/config/servers.yaml
+    - cp "$SSH_PRIVATE_KEY_GITLAB" deploy_context/ssh/id_rsa
+    # Bake context into local image to bypass ALL volume mapping/permission issues
+    - |
+      cat <<EOF > Dockerfile.renew
+      FROM $FULL_IMAGE_PATH:latest
+      USER root
+      COPY deploy_context/config/ /app/config/
+      COPY deploy_context/ssh/id_rsa /home/certuser/.ssh/id_rsa
+      RUN chown -R certuser:certuser /app/config /home/certuser/.ssh && chmod 600 /home/certuser/.ssh/id_rsa
+      USER certuser
+      EOF
+    - docker build -t renewal-app:local -f Dockerfile.renew .
   script:
-    - echo "Starting weekly SSL renewal process"
-    - export IONOS_API_KEY="$IONOS_API_KEY_GITLAB"
-    - export IONOS_API_SECRET="$IONOS_API_SECRET_GITLAB"
-    - export ACME_EMAIL="$ACME_EMAIL_GITLAB"
-    - export ACME_SH_COMMAND="/home/certuser/.acme.sh/acme.sh"
-    - export SSH_KEY_PATH="/home/certuser/.ssh/id_rsa"
-    - export CERT_BASE_PATH="/app/certs"
-    - export LOG_FILE_PATH="/app/logs/renewal.log"
-    - export REPORT_FILE_PATH="/app/reports/renewal_report.md"
-    - python3 main.py
-  artifacts:
-    paths:
-      - /app/reports/*.md
-      - /app/logs/*.log
-    expire_in: 1 week
+    - echo "Starting weekly SSL renewal check via baked context image..."
+    - |
+      docker run --rm \
+      -e IONOS_API_KEY="$IONOS_API_KEY_GITLAB" \
+      -e IONOS_API_SECRET="$IONOS_API_SECRET_GITLAB" \
+      -e ACME_EMAIL="$ACME_EMAIL_GITLAB" \
+      -e ACME_SH_COMMAND="/home/certuser/.acme.sh/acme.sh" \
+      -e SSH_KEY_PATH="/home/certuser/.ssh/id_rsa" \
+      -e CERT_BASE_PATH="/app/certs" \
+      -e LOG_FILE_PATH="/app/logs/renewal.log" \
+      -e REPORT_FILE_PATH="/app/reports/renewal_report.md" \
+      renewal-app:local
   rules:
     - if: '$CI_PIPELINE_SOURCE == "schedule"'
     - if: '$CI_COMMIT_BRANCH == "main"'
