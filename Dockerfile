@@ -27,6 +27,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 # Pre-create acme directory and install acme.sh
+# Switch to certuser first so installation happens with correct ownership
+USER certuser
 RUN mkdir -p /home/certuser/.acme.sh && \
     curl https://get.acme.sh | sh -s -- --install --home /home/certuser/.acme.sh \
     --accountemail "jaskarn.singh@lindera.de"
@@ -37,9 +39,11 @@ ENV PATH="/home/certuser/.acme.sh:${PATH}"
 ENV ACME_SH_COMMAND="/home/certuser/.acme.sh/acme.sh"
 
 # Copy application requirements
+# (We are already certuser, but we might need root to install pip requirements if they go to system)
+# Actually, pip install --user is safer or just stay root for pip then switch back.
+USER root
+RUN ln -s /home/certuser/.acme.sh/acme.sh /usr/local/bin/acme.sh
 COPY cert_automation/requirements.txt .
-
-# Install Python dependencies
 RUN pip install --no-cache-dir -r requirements.txt
 
 # Copy the application code into the container
@@ -56,7 +60,7 @@ ENV ACME_HOME_DIR="/home/certuser/.acme.sh"
 ENV LOG_FILE_PATH="/app/logs/renewal.log"
 ENV REPORT_FILE_PATH="/app/reports/renewal_report.md"
 
-# Switch to the non-root user
+# Switch back to the non-root user
 USER certuser
 
 # Define the entrypoint for the container

@@ -148,7 +148,6 @@ scheduled_renewal:
       -e IONOS_API_KEY="$IONOS_API_KEY_GITLAB" \
       -e IONOS_API_SECRET="$IONOS_API_SECRET_GITLAB" \
       -e ACME_EMAIL="$ACME_EMAIL_GITLAB" \
-      -e ACME_SH_COMMAND="/home/certuser/.acme.sh/acme.sh" \
       -e SSH_KEY_PATH="/home/certuser/.ssh/id_rsa" \
       -e CERT_BASE_PATH="/app/certs" \
       -e LOG_FILE_PATH="/app/logs/renewal.log" \
