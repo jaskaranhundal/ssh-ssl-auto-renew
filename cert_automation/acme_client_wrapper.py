@@ -132,10 +132,10 @@ def issue_certificate(
     if not dry_run:
         os.makedirs(cert_storage_path, exist_ok=True)
 
-    # acme.sh dns_ionos expects IONOS_API_KEY and IONOS_API_SECRET
+    # acme.sh dns_ionos plugin requires IONOS_PREFIX and IONOS_SECRET
     env_vars = {
-        "IONOS_API_KEY": ionos_api_key,
-        "IONOS_API_SECRET": ionos_api_secret
+        "IONOS_PREFIX": ionos_api_key,
+        "IONOS_SECRET": ionos_api_secret
     }
 
     command_args = [
