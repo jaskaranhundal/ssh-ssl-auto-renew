@@ -24,11 +24,18 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # Ensure home directory exists and is owned by certuser before switching
 RUN mkdir -p /home/certuser/.acme.sh && chown -R certuser:certuser /home/certuser
 
-# Switch to certuser for acme.sh installation (must be in a writable dir)
+# Switch to certuser for acme.sh installation (bypass get.acme.sh wrapper to avoid arg doubling)
 USER certuser
 WORKDIR /home/certuser
-RUN curl -fsSL https://get.acme.sh | sh -s -- --home /home/certuser/.acme.sh \
-    --accountemail "jaskarn.singh@lindera.de" && \
+RUN curl -fsSL https://github.com/acmesh-official/acme.sh/archive/refs/heads/master.tar.gz \
+        -o /tmp/acme.tar.gz && \
+    tar -xzf /tmp/acme.tar.gz -C /tmp && \
+    cd /tmp/acme.sh-master && \
+    ./acme.sh --install \
+        --home /home/certuser/.acme.sh \
+        --accountemail "jaskarn.singh@lindera.de" \
+        --force && \
+    cd / && rm -rf /tmp/acme.tar.gz /tmp/acme.sh-master && \
     test -f /home/certuser/.acme.sh/acme.sh && \
     /home/certuser/.acme.sh/acme.sh --version
 
