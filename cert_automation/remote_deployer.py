@@ -21,7 +21,7 @@ class RemoteDeployer:
         self._sftp_client = None
         log.info(f"RemoteDeployer initialized for {user}@{host} (Dry Run: {dry_run})")
 
-    @retry(tries=3, delay=5, backoff=2, exceptions=(paramiko.SSHException, socket.error, paramiko.NoValidConnectionsError))
+    @retry(tries=3, delay=5, backoff=2, exceptions=(paramiko.SSHException, socket.error))
     def _connect(self):
         """Establishes an SSH connection."""
         if self.dry_run:
@@ -47,9 +47,6 @@ class RemoteDeployer:
             return True
         except paramiko.AuthenticationException as e:
             log.error(f"SSH authentication failed for {self.user}@{self.host}: {e}")
-            raise
-        except paramiko.NoValidConnectionsError as e:
-            log.error(f"No valid SSH connections to {self.host}: {e}")
             raise
         except paramiko.SSHException as e:
             log.error(f"SSH connection to {self.host} failed: {e}")
