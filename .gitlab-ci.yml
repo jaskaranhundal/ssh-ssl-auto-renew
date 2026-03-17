@@ -158,6 +158,11 @@ scheduled_renewal:
       -e CERT_BASE_PATH="/app/certs" \
       -e LOG_FILE_PATH="/app/logs/renewal.log" \
       -e REPORT_FILE_PATH="/app/reports/renewal_report.md" \
+      -e OS_AUTH_URL="$OS_AUTH_URL" \
+      -e OS_USERNAME="$OS_USERNAME" \
+      -e OS_PASSWORD="$OS_PASSWORD" \
+      -e OS_USER_DOMAIN_NAME="$OS_USER_DOMAIN_NAME" \
+      -e OS_PROJECT_ID="$OS_PROJECT_ID" \
       renewal-app:local
   rules:
     - if: '$CI_PIPELINE_SOURCE == "schedule"'

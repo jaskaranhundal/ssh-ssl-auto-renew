@@ -176,10 +176,14 @@ def deploy_certificate(server_config: dict, domain_name: str, local_cert_path: s
         deployer.reload_nginx(reload_command) # Now raises exception on failure
 
         # 5. Perform Health Check
-        health_checker = HealthChecker(domain_name)
-        if not dry_run: # Only perform live health check if not dry run
-            health_checker.check_https_status() # Now raises exception on failure
-            health_checker.verify_cert_expiry() # Now raises exception on failure
+        # Wildcard domains (*.example.com) cannot be resolved directly — skip live checks
+        if not dry_run and not domain_name.startswith("*."):
+            health_checker = HealthChecker(domain_name)
+            health_checker.check_https_status()
+            min_expiry_days = int(os.getenv("CERT_MIN_EXPIRY_DAYS", "85"))
+            health_checker.verify_cert_expiry(expected_min_expiry_days=min_expiry_days)
+        elif domain_name.startswith("*."):
+            log.info(f"Skipping live health check for wildcard domain {domain_name}.")
 
         log.info(f"Deployment to {server_name} successful and health checks passed!")
         # 6. Clean up backups on success
