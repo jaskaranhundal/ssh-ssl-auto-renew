@@ -21,12 +21,12 @@ class RemoteDeployer:
         self._sftp_client = None
         log.info(f"RemoteDeployer initialized for {user}@{host} (Dry Run: {dry_run})")
 
-    @retry(tries=3, delay=5, backoff=2, exceptions=(paramiko.SSHException, socket.error))
+    @retry(tries=3, delay=5, backoff=2, exceptions=(paramiko.SSHException, socket.error, paramiko.NoValidConnectionsError))
     def _connect(self):
         """Establishes an SSH connection."""
         if self.dry_run:
             return True # In dry run, we simulate a successful connection
-            
+
         if self._ssh_client and self._ssh_client.get_transport() and self._ssh_client.get_transport().is_active():
             return True
 
@@ -34,8 +34,8 @@ class RemoteDeployer:
             log.info(f"Connecting to {self.user}@{self.host}...")
             self._ssh_client = paramiko.SSHClient()
             self._ssh_client.load_system_host_keys()
-            self._ssh_client.set_missing_host_key_policy(paramiko.RejectPolicy())
-            
+            self._ssh_client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+
             self._ssh_client.connect(
                 hostname=self.host,
                 username=self.user,
@@ -45,15 +45,21 @@ class RemoteDeployer:
             self._sftp_client = self._ssh_client.open_sftp()
             log.info(f"Successfully connected to {self.user}@{self.host}")
             return True
+        except paramiko.AuthenticationException as e:
+            log.error(f"SSH authentication failed for {self.user}@{self.host}: {e}")
+            raise
+        except paramiko.NoValidConnectionsError as e:
+            log.error(f"No valid SSH connections to {self.host}: {e}")
+            raise
         except paramiko.SSHException as e:
             log.error(f"SSH connection to {self.host} failed: {e}")
-            raise # Re-raise for decorator
+            raise
         except socket.error as e:
             log.error(f"Network error during SSH connection to {self.host}: {e}")
-            raise # Re-raise for decorator
+            raise
         except Exception as e:
-            log.error(f"An unexpected error during SSH connection to {self.host}: {e}")
-            raise # Re-raise for decorator
+            log.error(f"Unexpected error during SSH connection to {self.host}: {e}")
+            raise
 
     def close(self):
         """Closes the SSH and SFTP connections."""
