@@ -167,7 +167,7 @@ class RemoteDeployer:
             else:
                 # Exit code 0 from execute_command means the command succeeded,
                 # even if output appears empty (nginx -t writes to stderr without PTY).
-                log.info(f"Configuration validation on {self.host}: command exited cleanly (exit 0). Output: '{output or "<empty — nginx -t writes to stderr without PTY>"}'")
+                log.info(f"Configuration validation on {self.host}: command exited cleanly (exit 0). Output: '{output or '<empty - nginx -t writes to stderr without PTY>'}'")
             return True
         except Exception as e:
             log.error(f"Failed to validate configuration on {self.host}: {e}")
