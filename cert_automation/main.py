@@ -98,10 +98,27 @@ def deploy_to_otc_elb(elb_config: dict, domain_name: str, local_cert_path: str, 
         for listener in listeners:
             l_name = listener.get("name")
             l_id = listener.get("id")
-            
+
+            # Resolve listener ID by name if not configured or if it no longer exists
+            if not l_id:
+                log.info(f"No listener ID configured for '{l_name}', looking up by name...")
+                l_id = client.get_listener_id_by_name(l_name)
+            else:
+                # Verify the configured ID still exists; fall back to name lookup if not
+                current_cert = client.get_listener_current_cert(l_id)
+                if current_cert is None and l_name:
+                    log.warning(f"Listener ID '{l_id}' not found (404), falling back to name lookup for '{l_name}'...")
+                    l_id = client.get_listener_id_by_name(l_name)
+
+            if not l_id:
+                msg = f"Could not resolve listener '{l_name}' — not found by ID or name."
+                log.error(msg)
+                deployment_results.append({"server": f"OTC ELB: {l_name}", "success": False, "message": msg})
+                continue
+
             # Capture old cert ID for optional cleanup later
             old_cert_id = client.get_listener_current_cert(l_id)
-            
+
             success = client.update_listener_cert(l_id, new_cert_id)
             msg = f"Updated listener {l_name} to new cert {new_cert_id}." if success else f"Failed to update listener {l_name}."
             
@@ -146,8 +163,9 @@ def deploy_certificate(server_config: dict, domain_name: str, local_cert_path: s
         log.error(error_msg)
         return False, error_msg
 
+    use_pty = server_config.get("use_pty", False)   # Set true for servers without NOPASSWD sudoers
     log.info(f"--- Starting deployment to server: {server_name} ({host}) ---")
-    deployer = RemoteDeployer(host, user, ssh_key, dry_run=dry_run)
+    deployer = RemoteDeployer(host, user, ssh_key, dry_run=dry_run, use_pty=use_pty)
 
     try:
         # Define remote paths

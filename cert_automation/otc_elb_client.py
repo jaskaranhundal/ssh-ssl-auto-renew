@@ -77,33 +77,65 @@ class OTCELBClient:
         log.info(f"Successfully uploaded certificate. ID: {cert_id}")
         return cert_id
 
+    def get_listener_id_by_name(self, listener_name: str) -> Optional[str]:
+        """Looks up a listener ID by its name. Returns None if not found."""
+        token = self._get_token()
+        url = f"{self.base_url}/listeners"
+        response = requests.get(url, headers={"X-Auth-Token": token}, params={"name": listener_name}, timeout=30)
+        response.raise_for_status()
+        listeners = response.json().get("listeners", [])
+        if not listeners:
+            log.warning(f"No OTC ELB listener found with name '{listener_name}'.")
+            return None
+        if len(listeners) > 1:
+            log.warning(f"Multiple listeners found with name '{listener_name}', using first match.")
+        listener_id = listeners[0].get("id")
+        log.info(f"Resolved listener name '{listener_name}' to ID '{listener_id}'.")
+        return listener_id
+
     def get_listener_current_cert(self, listener_id: str) -> Optional[str]:
-        """Returns the ID of the certificate currently bound to a listener."""
+        """Returns the ID of the certificate currently bound to a listener.
+        
+        Returns None if the listener does not exist (404) instead of raising,
+        so the caller can decide whether to abort or continue.
+        """
         token = self._get_token()
         url = f"{self.base_url}/listeners/{listener_id}"
-        
+
         response = requests.get(url, headers={"X-Auth-Token": token}, timeout=30)
+        if response.status_code == 404:
+            log.warning(
+                f"OTC ELB listener '{listener_id}' not found (404). "
+                f"It may have been deleted or replaced. Update the listener ID in domains.yaml."
+            )
+            return None
         response.raise_for_status()
-        
+
         return response.json().get("listener", {}).get("default_tls_container_ref")
 
     def update_listener_cert(self, listener_id: str, cert_id: str) -> bool:
         """Binds a certificate to a specific ELB listener."""
         token = self._get_token()
         url = f"{self.base_url}/listeners/{listener_id}"
-        
+
         payload = {
             "listener": {
                 "default_tls_container_ref": cert_id
             }
         }
-        
+
         log.info(f"Binding certificate {cert_id} to listener {listener_id}...")
         response = requests.put(url, json=payload, headers={"X-Auth-Token": token}, timeout=30)
-        
+
         if response.status_code == 200:
             log.info(f"Successfully updated listener {listener_id}")
             return True
+        elif response.status_code == 404:
+            raise ValueError(
+                f"OTC ELB listener '{listener_id}' returned 404 — it no longer exists. "
+                f"Please find the current listener ID in the OTC Console (ELB → Listeners) "
+                f"and update 'id' under the 'otc_elb.listeners' entry in domains.yaml."
+            )
         else:
             log.error(f"Failed to update listener {listener_id}: {response.text}")
             return False
