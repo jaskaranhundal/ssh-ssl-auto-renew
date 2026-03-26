@@ -97,21 +97,16 @@ def deploy_to_otc_elb(elb_config: dict, domain_name: str, local_cert_path: str, 
         # 2. Update each listener
         for listener in listeners:
             l_name = listener.get("name")
-            l_id = listener.get("id")
 
-            # Resolve listener ID by name if not configured or if it no longer exists
-            if not l_id:
-                log.info(f"No listener ID configured for '{l_name}', looking up by name...")
+            # Always resolve by name at runtime — IDs in config can become stale
+            # (e.g. if a cert ID was accidentally stored instead of a listener ID)
+            if l_name:
                 l_id = client.get_listener_id_by_name(l_name)
             else:
-                # Verify the configured ID still exists; fall back to name lookup if not
-                current_cert = client.get_listener_current_cert(l_id)
-                if current_cert is None and l_name:
-                    log.warning(f"Listener ID '{l_id}' not found (404), falling back to name lookup for '{l_name}'...")
-                    l_id = client.get_listener_id_by_name(l_name)
+                l_id = listener.get("id")
 
             if not l_id:
-                msg = f"Could not resolve listener '{l_name}' — not found by ID or name."
+                msg = f"Could not resolve OTC ELB listener '{l_name}' — not found by name."
                 log.error(msg)
                 deployment_results.append({"server": f"OTC ELB: {l_name}", "success": False, "message": msg})
                 continue
