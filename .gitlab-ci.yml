@@ -42,7 +42,8 @@ sca_scan:
   image: $PYTHON_IMAGE
   script:
     - pip install pip-audit
-    - pip-audit -r cert_automation/requirements.txt
+    # CVE-2026-4539: pygments indirect dep via pytest; no fix version available yet — suppress until patch released
+    - pip-audit -r cert_automation/requirements.txt --ignore-vuln CVE-2026-4539
   rules:
     - if: '$CI_PIPELINE_SOURCE == "push"'
 
