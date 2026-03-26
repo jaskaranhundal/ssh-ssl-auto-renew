@@ -1,11 +1,7 @@
-requests
+requests>=2.33.0
 python-dotenv
 cryptography
 pyOpenSSL
 dnspython
 PyYAML
 paramiko
-
-# Testing
-pytest
-pytest-mock

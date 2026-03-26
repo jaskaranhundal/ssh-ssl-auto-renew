@@ -12,11 +12,12 @@ class RemoteDeployer:
     """
     Handles secure SSH connections, SCP file transfers, and remote command execution.
     """
-    def __init__(self, host: str, user: str, ssh_key_path: str, dry_run: bool = False):
+    def __init__(self, host: str, user: str, ssh_key_path: str, dry_run: bool = False, use_pty: bool = False):
         self.host = host
         self.user = user
         self.ssh_key_path = ssh_key_path
         self.dry_run = dry_run
+        self.use_pty = use_pty  # Allocate a PTY so sudo works on servers without NOPASSWD sudoers
         self._ssh_client = None
         self._sftp_client = None
         log.info(f"RemoteDeployer initialized for {user}@{host} (Dry Run: {dry_run})")
@@ -123,16 +124,21 @@ class RemoteDeployer:
         
         try:
             # Commands are sourced exclusively from admin-controlled YAML config — not user input.
-            stdin, stdout, stderr = self._ssh_client.exec_command(command)  # nosec B601
+            # get_pty=True allocates a pseudo-TTY, which is required by sudo on servers
+            # that do not have NOPASSWD configured in their sudoers file.
+            stdin, stdout, stderr = self._ssh_client.exec_command(command, get_pty=self.use_pty)  # nosec B601
             output = stdout.read().decode().strip()
-            error = stderr.read().decode().strip()
+            # When PTY is in use, stderr is merged into stdout by the terminal.
+            # When PTY is NOT in use, read stderr separately.
+            error = "" if self.use_pty else stderr.read().decode().strip()
             exit_code = stdout.channel.recv_exit_status()
 
             if check_exit_code and exit_code != 0:
                 error_msg = f"Command '{command}' failed with exit code {exit_code}. Stderr: {error}. Stdout: {output}"
                 log.error(error_msg)
                 raise Exception(error_msg) # Raise an exception for decorator to catch
-            
+
+            # Return combined output (stdout + stderr when no PTY, stdout-only when PTY)
             return output
         except (paramiko.SSHException, socket.error) as e:
             log.error(f"SSH or network error during command '{command}' execution on {self.host}: {e}")
@@ -142,19 +148,27 @@ class RemoteDeployer:
             raise # Re-raise for decorator and calling function
 
     def validate_nginx_config(self, validation_command: str = "sudo nginx -t") -> bool:
-        """Validates the Nginx configuration on the remote server."""
+        """Validates the Nginx configuration on the remote server.
+
+        NOTE: `nginx -t` writes its output to stderr, not stdout.
+        When use_pty=False (default), stderr is captured separately in execute_command
+        and included in the raised exception message on failure. When the command
+        succeeds (exit 0), output may appear empty — this is expected and treated as valid.
+        When use_pty=True, stderr is merged into stdout by the PTY.
+        """
         log.info(f"Validating configuration on {self.host} using '{validation_command}'...")
         try:
             output = self.execute_command(validation_command)
-            # Check for standard Nginx success or GitLab-ctl success indicators
+            # Check for standard Nginx success or GitLab-ctl success indicators.
+            # Note: nginx -t success text goes to stderr; with use_pty=True it appears in output.
+            # Without PTY, a clean exit code 0 from execute_command is our success signal.
             if "test is successful" in output or "syntax is ok" in output or "run:" in output or "ok:" in output:
                 log.info(f"Configuration on {self.host} is valid.")
-                return True
             else:
-                log.warning(f"Configuration validation output on {self.host} was unexpected:\n{output}")
-                # We return True if the command itself succeeded (exit code 0), 
-                # as execute_command would have raised an exception otherwise.
-                return True
+                # Exit code 0 from execute_command means the command succeeded,
+                # even if output appears empty (nginx -t writes to stderr without PTY).
+                log.info(f"Configuration validation on {self.host}: command exited cleanly (exit 0). Output: '{output or '<empty - nginx -t writes to stderr without PTY>'}'")
+            return True
         except Exception as e:
             log.error(f"Failed to validate configuration on {self.host}: {e}")
             return False

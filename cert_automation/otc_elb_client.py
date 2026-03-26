@@ -83,7 +83,8 @@ class OTCELBClient:
         url = f"{self.base_url}/listeners"
         response = requests.get(url, headers={"X-Auth-Token": token}, params={"name": listener_name}, timeout=30)
         response.raise_for_status()
-        listeners = response.json().get("listeners", [])
+        # Filter client-side as safety net in case OTC ignores the ?name= param
+        listeners = [l for l in response.json().get("listeners", []) if l.get("name") == listener_name]
         if not listeners:
             log.warning(f"No OTC ELB listener found with name '{listener_name}'.")
             return None

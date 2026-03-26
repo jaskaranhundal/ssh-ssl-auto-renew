@@ -71,7 +71,7 @@ def test_upload_file_success(deployer, mock_paramiko):
     assert actual_temp_path.startswith("/tmp/")
     assert actual_temp_path.endswith("_path.tmp")
     # Check that the move command was called with the same temp path
-    mock_ssh_client.exec_command.assert_any_call(f"sudo mv {actual_temp_path} remote/path")
+    mock_ssh_client.exec_command.assert_any_call(f"sudo mv {actual_temp_path} remote/path", get_pty=False)
 
 def test_execute_command_success(deployer, mock_paramiko):
     """Test successful command execution."""
@@ -84,7 +84,7 @@ def test_execute_command_success(deployer, mock_paramiko):
     stdout = deployer.execute_command("echo 'hello'")
     
     assert stdout == "Success"
-    mock_ssh_client.exec_command.assert_called_with("echo 'hello'")
+    mock_ssh_client.exec_command.assert_called_with("echo 'hello'", get_pty=False)
 
 def test_execute_command_failure_exit_code(deployer, mock_paramiko):
     """Test command execution that fails with a non-zero exit code."""

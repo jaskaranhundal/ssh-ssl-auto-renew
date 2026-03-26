@@ -30,7 +30,7 @@ unit_tests:
   stage: test
   image: $PYTHON_IMAGE
   script:
-    - pip install -r cert_automation/requirements.txt
+    - pip install -r cert_automation/requirements-dev.txt
     - export PYTHONPATH=$PYTHONPATH:$(pwd)/cert_automation
     - pytest tests/
   rules:
