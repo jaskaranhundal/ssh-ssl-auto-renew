@@ -72,7 +72,7 @@ GitLab CI/CD (Weekly Schedule)
 | SSH host key verification | `RejectPolicy` + `ssh-keyscan` pre-population |
 | No predictable temp file paths | UUID-prefixed staging path (mitigates CWE-377) |
 | Secrets never in code or image layers | Injected via CI environment variables at runtime |
-| Dependency vulnerability scanning | `pip-audit` in every pipeline |
+| Dependency vulnerability scanning | `pip-audit` scans production deps (`requirements.txt`) in every pipeline; test tooling deps are in `requirements-dev.txt` and excluded from SCA scope |
 | Static code security analysis | Bandit SAST (CWE-295, B601, B108) in every pipeline |
 | Non-root container execution | `certuser` (UID 1000) runs the application |
 
@@ -185,6 +185,16 @@ servers:
 | `OS_PASSWORD` | Variable | OTC password |
 | `OS_USER_DOMAIN_NAME` | Variable | OTC user domain name |
 | `OS_PROJECT_ID` | Variable | OTC project ID |
+
+---
+
+## Known Limitations
+
+### pygments — GHSA-5239-wwwm-4pmq (test tooling only)
+
+All released versions of `pygments` (up to 2.19.2) carry `GHSA-5239-wwwm-4pmq`, a local-access-only ReDoS in the Archetype Description Language lexer. No patched release exists as of March 2026.
+
+`pygments` is an indirect dependency of `pytest` (used for syntax-highlighted test output) and is **never deployed or executed in production**. It is intentionally isolated in `requirements-dev.txt` so that the production SCA scan (`pip-audit -r requirements.txt`) targets only the runtime attack surface. This finding will be resolved once pygments releases a patch.
 
 ---
 

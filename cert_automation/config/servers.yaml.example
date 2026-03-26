@@ -1,17 +1,56 @@
-o# Example servers.yaml configuration (S-201)
+# Example servers.yaml configuration (S-201)
 # Defines the target servers where certificates will be deployed.
+#
+# Fields:
+#   name                  - Unique identifier referenced in domains.yaml
+#   host                  - IP address or hostname of the target server
+#   user                  - SSH user (must have sudo access to cert_path)
+#   ssh_key_path          - Path to the SSH private key (overridden by SSH_KEY_PATH env var in CI)
+#   cert_path             - Remote directory where fullchain.pem and privkey.pem will be written
+#   nginx_reload_command  - Command to reload the web server after cert deployment
+#   validation_command    - (Optional) Command to validate config before reload. Default: "sudo nginx -t"
+#   use_pty               - (Optional) Set true if the server's sudoers requires a terminal (no NOPASSWD).
+#                           Preferred fix is to add NOPASSWD sudoers on the remote server (see below).
+#                           Default: false
 
 servers:
+  # Standard nginx server with NOPASSWD sudo (preferred setup)
   - name: webserver-01
     host: 192.168.1.101
     user: automation_user
     ssh_key_path: "/path/to/ssh/keys/automation_key"
-    nginx_reload_command: "sudo systemctl reload nginx"
     cert_path: "/etc/nginx/ssl"
+    nginx_reload_command: "sudo systemctl reload nginx"
+    # use_pty: false  # default; requires certuser NOPASSWD in /etc/sudoers.d/certuser
 
+  # Server using systemd service reload
   - name: webserver-02
     host: 192.168.1.102
     user: automation_user
     ssh_key_path: "/path/to/ssh/keys/automation_key"
-    nginx_reload_command: "sudo service nginx reload"
     cert_path: "/etc/ssl/private"
+    nginx_reload_command: "sudo service nginx reload"
+
+  # GitLab Omnibus server — uses gitlab-ctl instead of nginx directly
+  # Also uses /etc/letsencrypt/live/<domain>/ as cert_path (standard Certbot layout)
+  - name: srv-gitlab
+    host: 192.168.1.50
+    user: automation_user
+    ssh_key_path: "/path/to/ssh/keys/automation_key"
+    cert_path: "/etc/letsencrypt/live/gitlab.example.com"
+    validation_command: "sudo gitlab-ctl status nginx"
+    nginx_reload_command: "sudo gitlab-ctl hup nginx"
+    # IMPORTANT: The automation_user must have NOPASSWD for gitlab-ctl in /etc/sudoers.d/:
+    #   automation_user ALL=(ALL) NOPASSWD: /usr/bin/gitlab-ctl, /bin/mv, /bin/cp, /bin/rm, /bin/chmod
+    # If NOPASSWD is not possible, set use_pty: true (less secure, avoid in production):
+    # use_pty: true
+
+  # Errors/Sentry server — example where cert_path is letsencrypt live dir
+  - name: srv-errors
+    host: 192.168.1.3
+    user: automation_user
+    ssh_key_path: "/path/to/ssh/keys/automation_key"
+    cert_path: "/etc/letsencrypt/live/errors.example.com"
+    nginx_reload_command: "sudo systemctl reload nginx"
+    # Required sudoers on 10.0.0.3:
+    #   automation_user ALL=(ALL) NOPASSWD: /bin/mv, /bin/cp, /bin/rm, /bin/chmod, /usr/sbin/nginx
