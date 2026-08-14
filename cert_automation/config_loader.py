@@ -58,7 +58,6 @@ if __name__ == "__main__":
     DOMAINS_CONFIG_PATH = "config/domains.yaml"
 
     try:
-        import os
         os.makedirs("config", exist_ok=True)
         with open(SERVERS_CONFIG_PATH, "w") as f:
             f.write("""

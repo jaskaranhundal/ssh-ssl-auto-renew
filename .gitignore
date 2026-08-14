@@ -211,8 +211,21 @@ __marimo__/
 _bmad/
 _bmad-output/
 .claude/
-./cert_automation/config/servers.yaml
-./cert_automation/config/credentials.csv
-./cert_automation/config/domains.yaml
-./cert_automation/log/
-./cert_automation/reports/
+# --- Certificate automation: live state, never commit -------------------------
+# NOTE: the previous entries here were written as "./cert_automation/..." — a
+# leading "./" is not a valid gitignore pattern, so none of them matched and
+# real server inventory was left addable. Paths are repo-root relative.
+cert_automation/config/servers.yaml
+cert_automation/config/domains.yaml
+cert_automation/config/credentials.csv
+cert_automation/log/
+cert_automation/logs/
+cert_automation/reports/
+
+# Issued certificates and ACME account state — contains PRIVATE KEYS.
+cert_automation/.certs/
+cert_automation/.acme_home/
+*.key
+*.pem
+*.csr
+fullchain.cer

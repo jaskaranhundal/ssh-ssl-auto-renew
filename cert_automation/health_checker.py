@@ -4,7 +4,7 @@ import tempfile
 import os
 import requests
 import logging
-from datetime import datetime, timedelta
+from datetime import datetime
 
 from cert_manager import get_certificate_expiry_date
 
@@ -83,7 +83,7 @@ class HealthChecker:
             logging.info(f"Live certificate for {self.domain} expires on {expiry_date.strftime('%Y-%m-%d')} ({days_to_expiry} days).")
 
             if days_to_expiry >= expected_min_expiry_days:
-                logging.info(f"Certificate verification PASSED. The new certificate is being served.")
+                logging.info("Certificate verification PASSED. The new certificate is being served.")
                 return True
             else:
                 logging.warning(f"Certificate verification FAILED. The certificate expires in {days_to_expiry} days, which is less than the expected {expected_min_expiry_days} days. The old certificate might still be active.")

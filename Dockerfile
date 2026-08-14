@@ -19,6 +19,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     socat \
     openssh-client \
     sudo \
+    iputils-ping \
+    traceroute \
     && rm -rf /var/lib/apt/lists/*
 
 # Ensure home directory exists and is owned by certuser before switching
@@ -33,7 +35,7 @@ RUN curl -fsSL https://github.com/acmesh-official/acme.sh/archive/refs/heads/mas
     cd /tmp/acme.sh-master && \
     ./acme.sh --install \
         --home /home/certuser/.acme.sh \
-        --accountemail "jaskarn.singh@lindera.de" \
+        --accountemail "ops@example.com" \
         --force && \
     cd / && rm -rf /tmp/acme.tar.gz /tmp/acme.sh-master && \
     test -f /home/certuser/.acme.sh/acme.sh && \
