@@ -3,7 +3,7 @@
 variables:
   PYTHON_IMAGE: "python:3.10-slim-buster"
   DOCKER_REGISTRY: "swr.eu-de.otc.t-systems.com"
-  IMAGE_NAME: "lindera/auto_ssl_cert_genration"
+  IMAGE_NAME: "example-org/tls-cert-automation"
   TARGET_SSH_HOSTS: "$TARGET_SSH_HOSTS_GITLAB"
   FULL_IMAGE_PATH: "$DOCKER_REGISTRY/$IMAGE_NAME"
 

@@ -1,5 +1,5 @@
 import logging
-from typing import Dict, List, Any
+from typing import Dict, Any
 from datetime import datetime, timedelta
 
 log = logging.getLogger(__name__)
@@ -87,7 +87,7 @@ def generate_markdown_report(results: Dict[str, Any]) -> str:
                 report_lines.append(f"**Issuance Error:** {issue_error}\n\n")
             
             if deployment_results:
-                report_lines.append(f"**Deployment Status:**\n")
+                report_lines.append("**Deployment Status:**\n")
                 for deploy_res in deployment_results:
                     server_name = deploy_res.get('server', 'Unknown Server')
                     success = deploy_res.get('success', False)

@@ -1,7 +1,7 @@
 import subprocess
 import os
 import logging
-from typing import Dict, Optional, List, Tuple
+from typing import Dict, Optional, List
 from retry_decorator import retry
 
 log = logging.getLogger(__name__)

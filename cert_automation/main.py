@@ -1,7 +1,6 @@
 import os
 import logging
 import sys
-import tempfile
 from dotenv import load_dotenv
 import socket
 import ipaddress
@@ -13,10 +12,14 @@ from cert_manager import is_certificate_due_for_renewal
 from acme_client_wrapper import issue_certificate
 from config_loader import load_yaml_config
 from remote_deployer import RemoteDeployer
+from known_hosts_builder import populate_from_servers_config
+from preflight import run_preflight, generate_preflight_report, blocking_failed_hosts
 from otc_elb_client import OTCELBClient
 from health_checker import HealthChecker
 from logger import setup_logging
 from report_generator import generate_markdown_report
+from teams_notifier import notify as send_teams_notification
+from teams_notifier import notify_preflight as send_teams_preflight
 
 # Global logger instance, to be initialized after dynamic setup in main()
 log = logging.getLogger(__name__)
@@ -97,21 +100,16 @@ def deploy_to_otc_elb(elb_config: dict, domain_name: str, local_cert_path: str, 
         # 2. Update each listener
         for listener in listeners:
             l_name = listener.get("name")
-            l_id = listener.get("id")
 
-            # Resolve listener ID by name if not configured or if it no longer exists
-            if not l_id:
-                log.info(f"No listener ID configured for '{l_name}', looking up by name...")
+            # Always resolve by name at runtime — IDs in config can become stale
+            # (e.g. if a cert ID was accidentally stored instead of a listener ID)
+            if l_name:
                 l_id = client.get_listener_id_by_name(l_name)
             else:
-                # Verify the configured ID still exists; fall back to name lookup if not
-                current_cert = client.get_listener_current_cert(l_id)
-                if current_cert is None and l_name:
-                    log.warning(f"Listener ID '{l_id}' not found (404), falling back to name lookup for '{l_name}'...")
-                    l_id = client.get_listener_id_by_name(l_name)
+                l_id = listener.get("id")
 
             if not l_id:
-                msg = f"Could not resolve listener '{l_name}' — not found by ID or name."
+                msg = f"Could not resolve OTC ELB listener '{l_name}' — not found by name."
                 log.error(msg)
                 deployment_results.append({"server": f"OTC ELB: {l_name}", "success": False, "message": msg})
                 continue
@@ -135,8 +133,11 @@ def deploy_to_otc_elb(elb_config: dict, domain_name: str, local_cert_path: str, 
         return deployment_results
 
     except Exception as e:
-        log.error(f"OTC ELB Deployment FAILED: {e}")
-        return [{"server": "OTC ELB", "success": False, "message": str(e)}]
+        # OTC_ELB_BEST_EFFORT lets an unreachable ELB (e.g. CI runner IP not whitelisted at
+        # OTC) NOT fail the run — it's still logged and reported, just non-fatal.
+        best_effort = os.getenv("OTC_ELB_BEST_EFFORT", "false").lower() == "true"
+        log.error(f"OTC ELB Deployment FAILED{' [best-effort, non-fatal]' if best_effort else ''}: {e}")
+        return [{"server": "OTC ELB", "success": False, "advisory": best_effort, "message": str(e)}]
 
 def deploy_certificate(server_config: dict, domain_name: str, local_cert_path: str, local_key_path: str, dry_run: bool = False) -> Tuple[bool, str]:
     """
@@ -167,21 +168,32 @@ def deploy_certificate(server_config: dict, domain_name: str, local_cert_path: s
     log.info(f"--- Starting deployment to server: {server_name} ({host}) ---")
     deployer = RemoteDeployer(host, user, ssh_key, dry_run=dry_run, use_pty=use_pty)
 
+    # Define remote paths (pure string ops — safe before the try)
+    remote_fullchain_path = os.path.join(remote_cert_path, "fullchain.pem")
+    remote_key_path = os.path.join(remote_cert_path, "privkey.pem")
+    backup_fullchain_path = remote_fullchain_path + ".bak"
+    backup_key_path = remote_key_path + ".bak"
+    backup_made = False  # only true once a real prior cert has been backed up
+
     try:
-        # Define remote paths
-        remote_fullchain_path = os.path.join(remote_cert_path, "fullchain.pem")
-        remote_key_path = os.path.join(remote_cert_path, "privkey.pem")
+        # 0. Ensure the remote cert directory exists (idempotent) — fixes first-deploy
+        #    failures like "mv: ... No such file or directory" when cert_path is new.
+        deployer.execute_command(f"sudo mkdir -p {remote_cert_path}", check_exit_code=False)
 
-        # Backup paths
-        backup_fullchain_path = remote_fullchain_path + ".bak"
-        backup_key_path = remote_key_path + ".bak"
-
-        # 1. Backup existing certificates on the remote server
-        try:
-            deployer.execute_command(f"sudo cp {remote_fullchain_path} {backup_fullchain_path}", check_exit_code=False)
-            deployer.execute_command(f"sudo cp {remote_key_path} {backup_key_path}", check_exit_code=False)
-        except Exception as e:
-            log.warning(f"Backup on {server_name} failed (might be first deploy, or certs missing): {e}")
+        # 1. Back up the existing certificate ONLY if one is present, and remember whether
+        #    we did — so rollback never tries to restore a backup that was never made.
+        probe = deployer.execute_command(
+            f"sudo sh -c 'test -f {remote_fullchain_path} && echo __PRESENT__ || echo __ABSENT__'",
+            check_exit_code=False)
+        if "__PRESENT__" in probe:
+            try:
+                deployer.execute_command(f"sudo cp {remote_fullchain_path} {backup_fullchain_path}", check_exit_code=False)
+                deployer.execute_command(f"sudo cp {remote_key_path} {backup_key_path}", check_exit_code=False)
+                backup_made = True
+            except Exception as e:
+                log.warning(f"Backup on {server_name} failed: {e}")
+        else:
+            log.info(f"No existing certificate on {server_name} — first deploy, nothing to back up.")
 
         # 2. Upload new certificates
         deployer.upload_file(local_cert_path, remote_fullchain_path) # Now raises exception on failure
@@ -216,14 +228,20 @@ def deploy_certificate(server_config: dict, domain_name: str, local_cert_path: s
         error_msg = f"Deployment to {server_name} FAILED: {e}"
         log.error(error_msg)
         if not dry_run:
-            log.info(f"Attempting to roll back on {server_name}...")
-            try:
-                deployer.execute_command(f"sudo mv {backup_fullchain_path} {remote_fullchain_path}")
-                deployer.execute_command(f"sudo mv {backup_key_path} {remote_key_path}")
-                deployer.reload_nginx(reload_command)
-                log.info(f"Rollback on {server_name} successful. Nginx reloaded with old certificate.")
-            except Exception as rollback_e:
-                log.critical(f"CRITICAL: Rollback on {server_name} FAILED: {rollback_e}. Nginx may be in a broken state.")
+            if not backup_made:
+                # No prior cert was backed up (first deploy / nothing to restore). The old
+                # config is untouched, so this is NOT a broken-nginx situation.
+                log.warning(f"No backup to roll back on {server_name} (first deploy / no prior cert). "
+                            f"Leaving state as-is; nginx not modified.")
+            else:
+                log.info(f"Attempting to roll back on {server_name}...")
+                try:
+                    deployer.execute_command(f"sudo mv {backup_fullchain_path} {remote_fullchain_path}")
+                    deployer.execute_command(f"sudo mv {backup_key_path} {remote_key_path}")
+                    deployer.reload_nginx(reload_command)
+                    log.info(f"Rollback on {server_name} successful. Nginx reloaded with old certificate.")
+                except Exception as rollback_e:
+                    log.critical(f"CRITICAL: Rollback on {server_name} FAILED: {rollback_e}. Nginx may be in a broken state.")
         return False, error_msg
     finally:
         deployer.close()
@@ -292,7 +310,7 @@ def process_domain(domain_info: dict, servers_map: dict, results: dict):
             domain_result["issue_error"] = str(e)
             log.error(f"An error occurred during certificate issuance for {domain_to_issue}: {e}")
             if dry_run:
-                log.warning(f"[DRY RUN] Issuance failed, but creating dummy files to continue simulation.")
+                log.warning("[DRY RUN] Issuance failed, but creating dummy files to continue simulation.")
                 with open(local_cert_path, 'w') as f: f.write("dummy cert")
                 with open(local_key_path, 'w') as f: f.write("dummy key")
                 issuance_successful = True
@@ -300,9 +318,24 @@ def process_domain(domain_info: dict, servers_map: dict, results: dict):
         if issuance_successful:
             # 1. SSH Deployment to servers
             servers_for_domain = domain_info.get("servers", [])
+            skip_hosts = results.get("preflight_skip_hosts", {})
             for server_name in servers_for_domain:
                 server_config = servers_map.get(server_name)
-                if server_config:
+                if not server_config:
+                    error_msg = f"Server '{server_name}' not found in servers.yaml. Cannot deploy."
+                    log.warning(error_msg)
+                    domain_result["deployment_results"].append({
+                        "server": server_name, "success": False, "message": error_msg
+                    })
+                elif server_name in skip_hosts:
+                    # Pre-flight already proved this host can't deploy — skip with the reason
+                    # instead of attempting and failing with a cryptic error.
+                    msg = f"preflight: {skip_hosts[server_name]}"
+                    log.warning(f"Skipping deploy to {server_name} ({server_config.get('host')}): {msg}")
+                    domain_result["deployment_results"].append({
+                        "server": server_name, "success": False, "message": msg
+                    })
+                else:
                     deploy_success, deploy_message = deploy_certificate(
                         server_config, target_domain, local_cert_path, local_key_path, dry_run=dry_run
                     )
@@ -310,14 +343,6 @@ def process_domain(domain_info: dict, servers_map: dict, results: dict):
                         "server": server_name,
                         "success": deploy_success,
                         "message": deploy_message
-                    })
-                else:
-                    error_msg = f"Server '{server_name}' not found in servers.yaml. Cannot deploy."
-                    log.warning(error_msg)
-                    domain_result["deployment_results"].append({
-                        "server": server_name,
-                        "success": False,
-                        "message": error_msg
                     })
 
             # 2. Cloud Console Deployment (OTC ELB)
@@ -327,8 +352,10 @@ def process_domain(domain_info: dict, servers_map: dict, results: dict):
                 )
                 domain_result["deployment_results"].extend(elb_results)
 
-            # Categorize the domain's overall outcome
-            all_deployments_successful = all(res["success"] for res in domain_result["deployment_results"])
+            # Categorize the domain's overall outcome. Results flagged "advisory"
+            # (best-effort OTC ELB) don't fail the domain.
+            all_deployments_successful = all(
+                res["success"] for res in domain_result["deployment_results"] if not res.get("advisory"))
 
             if domain_result["issue_error"] is None and all_deployments_successful:
                 results["successful_renewals"].append(target_domain)
@@ -352,6 +379,11 @@ def main():
         "--force",
         action="store_true",
         help="Force the renewal of certificates even if they are not yet due."
+    )
+    parser.add_argument(
+        "--preflight",
+        action="store_true",
+        help="Run SSH/deploy pre-flight diagnostics only (no issuance or deployment) and exit."
     )
     args = parser.parse_args()
 
@@ -425,6 +457,37 @@ def main():
 
     servers_map = {s['name']: s for s in servers_config.get("servers", [])}
 
+    # Populate known_hosts from servers.yaml (so RejectPolicy can verify every target),
+    # then run SSH/deploy pre-flight diagnostics. Both do real SSH, so they run for a
+    # real renewal or an explicit --preflight, but are skipped in a plain dry-run.
+    do_preflight = args.preflight or not results["global_config"]["dry_run"]
+    preflight_results = []
+    if do_preflight:
+        scanned = populate_from_servers_config(servers_config)
+        unscanned = [h for h, ok in scanned.items() if not ok]
+        if unscanned:
+            log.warning(f"known_hosts pre-flight could not scan: {', '.join(unscanned)}")
+        ssh_key_path = os.getenv("SSH_KEY_PATH") or ""
+        preflight_results = run_preflight(servers_config, domains_config, ssh_key_path, scanned)
+        log.info("Pre-flight diagnostics:\n" + generate_preflight_report(preflight_results))
+        # Hosts that failed a BLOCKING check are skipped in the deploy loop (with a clear
+        # reason) so a known-bad host doesn't cascade into a cryptic mid-deploy error.
+        results["preflight_skip_hosts"] = {r["name"]: r["reason"]
+                                           for r in preflight_results if not r["ok"]}
+
+    # --preflight: diagnostics only — write the report, post to Teams, and exit.
+    if args.preflight:
+        pf_path = os.getenv("PREFLIGHT_REPORT_PATH") or os.path.join("reports", f"preflight_report_{timestamp}.md")
+        try:
+            os.makedirs(os.path.dirname(pf_path), exist_ok=True)
+            with open(pf_path, "w") as f:
+                f.write(generate_preflight_report(preflight_results))
+            log.info(f"Pre-flight report saved to: {pf_path}")
+        except IOError as e:
+            log.error(f"Failed to write pre-flight report to {pf_path}: {e}")
+        send_teams_preflight(preflight_results)
+        sys.exit(1 if blocking_failed_hosts(preflight_results) else 0)
+
     for domain_info in domains_config.get("domains", []):
         process_domain(domain_info, servers_map, results)
 
@@ -447,6 +510,9 @@ def main():
         log.info(f"Renewal report saved to: {report_file_path}")
     except IOError as e:
         log.error(f"Failed to write renewal report to {report_file_path}: {e}")
+
+    # Post the summary to Teams (best-effort; never affects the exit code).
+    send_teams_notification(results, markdown_report_content)
 
     # Final status check for CI
     if results["failed_renewals"]:
