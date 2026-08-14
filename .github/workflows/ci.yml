@@ -1,0 +1,48 @@
+name: CI
+on: [push, pull_request]
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      # Pinned by commit SHA: a tag is mutable and can be repointed by the action owner.
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with:
+          python-version: "3.11"
+      # requirements-dev pulls in requirements.txt plus pytest-mock, which the
+      # suite needs for the `mocker` fixture.
+      - name: install
+        run: pip install -r cert_automation/requirements-dev.txt pyflakes
+      - name: lint
+        run: python -m pyflakes cert_automation/*.py
+      - name: tests
+        run: python -m pytest tests/ -q
+
+  secrets:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+      # This repo handles TLS private keys at runtime. The tracked tree must never
+      # contain one, and the .gitignore that prevents it must stay correct.
+      - name: no key material in the tracked tree
+        run: |
+          if git ls-files | grep -qE '\.(key|pem)$|domain\.key|/\.certs/|/\.acme_home/'; then
+            echo "::error::key material or ACME state is tracked"
+            git ls-files | grep -E '\.(key|pem)$|domain\.key|/\.certs/|/\.acme_home/'
+            exit 1
+          fi
+          echo "clean: no key material tracked"
+      - name: gitignore patterns are valid
+        run: |
+          # A leading "./" silently disables a gitignore rule; that mistake once left
+          # real server inventory addable in this repo.
+          if grep -qE '^[[:space:]]*\./' .gitignore; then
+            echo "::error::.gitignore contains a './'-prefixed pattern, which never matches"
+            grep -nE '^[[:space:]]*\./' .gitignore
+            exit 1
+          fi
+          echo "clean: no './'-prefixed ignore patterns"

@@ -1,10 +1,12 @@
 import time
+import random
 import logging
 from functools import wraps
 
 log = logging.getLogger(__name__)
 
-def retry(tries: int = 3, delay: float = 1.0, backoff: float = 2.0, exceptions=(Exception,)):
+def retry(tries: int = 3, delay: float = 1.0, backoff: float = 2.0, exceptions=(Exception,),
+          max_delay: float = 60.0, jitter: float = 0.0, non_retryable=()):
     """
     Decorator to retry a function call multiple times with exponential backoff.
 
@@ -13,6 +15,11 @@ def retry(tries: int = 3, delay: float = 1.0, backoff: float = 2.0, exceptions=(
         delay (float): Initial delay in seconds before the first retry.
         backoff (float): Factor by which the delay increases after each retry.
         exceptions (tuple): A tuple of exception types to catch and retry on.
+        max_delay (float): Upper bound on the backoff delay (seconds).
+        jitter (float): Max random seconds added to each delay to avoid thundering-herd.
+        non_retryable (tuple): Exception types that are permanent within a run — re-raised
+            immediately without retrying even if they also match ``exceptions`` (e.g. a missing
+            host key or an expired account: retrying cannot succeed and only wastes time).
     """
     def deco_retry(f):
         @wraps(f)
@@ -22,11 +29,15 @@ def retry(tries: int = 3, delay: float = 1.0, backoff: float = 2.0, exceptions=(
                 try:
                     return f(*args, **kwargs)
                 except exceptions as e:
-                    log.warning(f"Retrying {f.__name__} after {mdelay:.2f}s due to {type(e).__name__}: {e}")
-                    time.sleep(mdelay)
+                    if non_retryable and isinstance(e, non_retryable):
+                        log.warning(f"Not retrying {f.__name__} — permanent error {type(e).__name__}: {e}")
+                        raise
+                    sleep_for = min(mdelay, max_delay) + (random.uniform(0, jitter) if jitter else 0)
+                    log.warning(f"Retrying {f.__name__} after {sleep_for:.2f}s due to {type(e).__name__}: {e}")
+                    time.sleep(sleep_for)
                     mtries -= 1
                     mdelay *= backoff
-            
+
             # Final attempt outside the loop; if this fails, let the exception propagate
             return f(*args, **kwargs)
 
