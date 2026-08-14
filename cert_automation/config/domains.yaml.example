@@ -15,3 +15,38 @@ domains:
   - domain: another-public-domain.net
     servers:
       - webserver-02
+
+# --- Multi-cloud certificate targets (optional) -------------------------------
+# Each target names a provider and carries its own failure policy:
+#   policy: required   (default) a failure here fails the run
+#   policy: advisory             logged and reported, but non-fatal
+# There is deliberately no global best-effort switch: one unreachable endpoint
+# must not downgrade every other endpoint.
+#
+# Credentials are never configured here. Each provider uses its own default
+# credential chain, so CI can federate short-lived credentials (AWS OIDC role,
+# Azure workload identity, GCP Workload Identity Federation) with no stored key.
+#
+#  cloud_targets:
+#    - provider: aws
+#      name: edge-alb
+#      region: eu-central-1
+#      listener_arn: "arn:aws:elasticloadbalancing:eu-central-1:111122223333:listener/app/edge/abc/def"
+#      certificate_arn: "arn:aws:acm:eu-central-1:111122223333:certificate/1111-2222"  # optional: rotate in place
+#      policy: required
+#
+#    - provider: azure
+#      name: edge-appgw
+#      vault_url: "https://example-vault.vault.azure.net/"
+#      certificate_name: example-com
+#      subscription_id: "00000000-0000-0000-0000-000000000000"
+#      resource_group: example-rg
+#      gateway_name: example-appgw
+#      ssl_certificate_name: example-com     # optional, defaults to certificate_name
+#
+#    - provider: gcp
+#      name: eu-lb
+#      project_id: example-project
+#      location: global
+#      target_https_proxy: example-https-proxy
+#      policy: advisory

@@ -15,6 +15,7 @@ from remote_deployer import RemoteDeployer
 from known_hosts_builder import populate_from_servers_config
 from preflight import run_preflight, generate_preflight_report, blocking_failed_hosts
 from otc_elb_client import OTCELBClient
+from cloud import build_targets, deploy_to_targets
 from health_checker import HealthChecker
 from logger import setup_logging
 from report_generator import generate_markdown_report
@@ -352,8 +353,28 @@ def process_domain(domain_info: dict, servers_map: dict, results: dict):
                 )
                 domain_result["deployment_results"].extend(elb_results)
 
+            # 3. Multi-cloud targets (AWS ACM/ELBv2, Azure Key Vault/App Gateway,
+            #    GCP Certificate Manager). Each target carries its own policy.
+            if domain_info.get("cloud_targets"):
+                try:
+                    targets = build_targets(domain_info["cloud_targets"])
+                except ValueError as e:
+                    # A misconfigured target is fatal: silently not deploying to
+                    # an endpoint is worse than stopping.
+                    log.error(f"Domain '{target_domain}': {e}")
+                    domain_result["deployment_results"].append(
+                        {"server": "cloud_targets", "success": False, "message": str(e)})
+                else:
+                    with open(local_cert_path) as fh:
+                        cert_pem = fh.read()
+                    with open(local_key_path) as fh:
+                        key_pem = fh.read()
+                    cloud_results = deploy_to_targets(targets, target_domain, cert_pem, key_pem)
+                    domain_result["deployment_results"].extend(r.to_dict() for r in cloud_results)
+
             # Categorize the domain's overall outcome. Results flagged "advisory"
-            # (best-effort OTC ELB) don't fail the domain.
+            # (best-effort OTC ELB, or a cloud target with policy: advisory)
+            # don't fail the domain.
             all_deployments_successful = all(
                 res["success"] for res in domain_result["deployment_results"] if not res.get("advisory"))
 
